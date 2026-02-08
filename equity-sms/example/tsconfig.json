@@ -1,0 +1,10 @@
+{
+  "extends": "expo/tsconfig.base",
+  "compilerOptions": {
+    "strict": true,
+    "paths": {
+      "equity-sms": ["../src/index"],
+      "equity-sms/*": ["../src/*"]
+    }
+  }
+}

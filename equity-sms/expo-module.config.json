@@ -1,0 +1,9 @@
+{
+  "platforms": ["apple", "android", "web"],
+  "apple": {
+    "modules": ["EquitySmsModule"]
+  },
+  "android": {
+    "modules": ["expo.modules.equitysms.EquitySmsModule"]
+  }
+}
