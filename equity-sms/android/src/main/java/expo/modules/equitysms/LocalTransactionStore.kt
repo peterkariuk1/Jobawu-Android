@@ -9,6 +9,10 @@ import org.json.JSONObject
 /**
  * Local storage for transactions using SharedPreferences.
  * Provides offline caching before Firestore sync.
+ * 
+ * Storage structure:
+ * - pending_transactions: Transactions not yet synced to Firestore
+ * - synced_transactions: Transactions successfully synced to Firestore
  */
 class LocalTransactionStore(context: Context) {
 
@@ -23,33 +27,40 @@ class LocalTransactionStore(context: Context) {
 
     init {
         Log.d(TAG, "LocalTransactionStore initialized")
-        Log.d(TAG, "Pending transactions: ${getPendingTransactions().size}")
-        Log.d(TAG, "Synced transactions: ${getSyncedTransactions().size}")
+        val pendingCount = getPendingTransactions().size
+        val syncedCount = getSyncedTransactions().size
+        Log.d(TAG, "Storage status: $pendingCount pending, $syncedCount synced")
     }
 
     /**
      * Saves a transaction locally (pending sync to Firestore).
+     * Returns false if transaction already exists (duplicate detection).
      */
     fun savePendingTransaction(transaction: TransactionData): Boolean {
-        Log.d(TAG, "savePendingTransaction called for: ${transaction.id}")
+        Log.d(TAG, "savePendingTransaction: ${transaction.id}")
         
         return try {
             val pending = getPendingTransactionsInternal().toMutableList()
-            Log.d(TAG, "Current pending count: ${pending.size}")
+            val synced = getSyncedTransactionsInternal()
             
-            // Check for duplicates by mpesaReference
+            // Check for duplicates by mpesaReference in both pending and synced
             if (pending.any { it.mpesaReference == transaction.mpesaReference }) {
-                Log.d(TAG, "Transaction already exists locally (duplicate mpesaRef): ${transaction.mpesaReference}")
+                Log.d(TAG, "✗ Duplicate found in pending (mpesaRef: ${transaction.mpesaReference})")
+                return false
+            }
+            if (synced.any { it.mpesaReference == transaction.mpesaReference }) {
+                Log.d(TAG, "✗ Duplicate found in synced (mpesaRef: ${transaction.mpesaReference})")
                 return false
             }
             
             pending.add(transaction)
             savePendingTransactionsInternal(pending)
-            Log.d(TAG, "✓ Transaction saved locally: ${transaction.id}")
-            Log.d(TAG, "New pending count: ${pending.size}")
+            
+            Log.i(TAG, "✓ Transaction saved locally: ${transaction.id}")
+            Log.d(TAG, "Pending count: ${pending.size}")
             true
         } catch (e: Exception) {
-            Log.e(TAG, "✗ Failed to save transaction locally: ${e.message}")
+            Log.e(TAG, "✗ Failed to save transaction: ${e.message}")
             e.printStackTrace()
             false
         }
@@ -60,7 +71,7 @@ class LocalTransactionStore(context: Context) {
      */
     fun getPendingTransactions(): List<TransactionData> {
         val pending = getPendingTransactionsInternal()
-        Log.d(TAG, "getPendingTransactions: returning ${pending.size} transactions")
+        Log.d(TAG, "getPendingTransactions: ${pending.size} transactions")
         return pending
     }
 
@@ -68,6 +79,8 @@ class LocalTransactionStore(context: Context) {
      * Marks a transaction as synced (moves from pending to synced).
      */
     fun markAsSynced(transactionId: String): Boolean {
+        Log.d(TAG, "markAsSynced: $transactionId")
+        
         return try {
             val pending = getPendingTransactionsInternal().toMutableList()
             val transaction = pending.find { it.id == transactionId }
@@ -81,14 +94,65 @@ class LocalTransactionStore(context: Context) {
                 synced.add(transaction)
                 saveSyncedTransactionsInternal(synced)
                 
-                Log.d(TAG, "Transaction marked as synced: $transactionId")
+                Log.i(TAG, "✓ Transaction marked as synced: $transactionId")
+                Log.d(TAG, "Pending: ${pending.size}, Synced: ${synced.size}")
                 true
             } else {
                 Log.w(TAG, "Transaction not found in pending: $transactionId")
                 false
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to mark transaction as synced: ${e.message}")
+            Log.e(TAG, "Failed to mark as synced: ${e.message}")
+            e.printStackTrace()
+            false
+        }
+    }
+
+    /**
+     * Marks a transaction as reconciled locally.
+     * Updates the transaction in either pending or synced list.
+     */
+    fun markAsReconciled(transactionId: String): Boolean {
+        Log.d(TAG, "markAsReconciled (local): $transactionId")
+        
+        return try {
+            val reconciledAt = System.currentTimeMillis()
+            
+            // Check in synced transactions first
+            val synced = getSyncedTransactionsInternal().toMutableList()
+            val syncedIndex = synced.indexOfFirst { it.id == transactionId }
+            
+            if (syncedIndex >= 0) {
+                val updated = synced[syncedIndex].copy(
+                    reconciled = true,
+                    reconciledAt = reconciledAt
+                )
+                synced[syncedIndex] = updated
+                saveSyncedTransactionsInternal(synced)
+                Log.i(TAG, "✓ Transaction marked as reconciled (synced): $transactionId")
+                return true
+            }
+            
+            // Check in pending transactions
+            val pending = getPendingTransactionsInternal().toMutableList()
+            val pendingIndex = pending.indexOfFirst { it.id == transactionId }
+            
+            if (pendingIndex >= 0) {
+                val updated = pending[pendingIndex].copy(
+                    reconciled = true,
+                    reconciledAt = reconciledAt
+                )
+                pending[pendingIndex] = updated
+                savePendingTransactionsInternal(pending)
+                Log.i(TAG, "✓ Transaction marked as reconciled (pending): $transactionId")
+                return true
+            }
+            
+            Log.w(TAG, "Transaction not found: $transactionId")
+            false
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to mark as reconciled: ${e.message}")
+            e.printStackTrace()
             false
         }
     }
@@ -104,8 +168,10 @@ class LocalTransactionStore(context: Context) {
      * Gets all transactions (pending + synced) for display.
      */
     fun getAllTransactions(): List<TransactionData> {
-        return (getPendingTransactionsInternal() + getSyncedTransactionsInternal())
+        val all = (getPendingTransactionsInternal() + getSyncedTransactionsInternal())
             .sortedByDescending { it.createdAt }
+        Log.d(TAG, "getAllTransactions: ${all.size} total")
+        return all
     }
 
     /**
@@ -117,9 +183,21 @@ class LocalTransactionStore(context: Context) {
                 .sortedByDescending { it.createdAt }
                 .take(keepCount)
             saveSyncedTransactionsInternal(synced)
+            Log.d(TAG, "Pruned transactions, keeping $keepCount")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to prune transactions: ${e.message}")
         }
+    }
+
+    /**
+     * Clears all local data (for testing/reset).
+     */
+    fun clearAll() {
+        Log.w(TAG, "Clearing all local transactions")
+        prefs.edit()
+            .putString(KEY_PENDING_TRANSACTIONS, "[]")
+            .putString(KEY_SYNCED_TRANSACTIONS, "[]")
+            .apply()
     }
 
     private fun getPendingTransactionsInternal(): List<TransactionData> {

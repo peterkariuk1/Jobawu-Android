@@ -8,12 +8,14 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.SharedPreferences
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.os.Build
 import android.os.IBinder
+import android.os.PowerManager
 import android.provider.Telephony
 import android.util.Log
 import androidx.core.app.NotificationCompat
@@ -22,6 +24,12 @@ import androidx.core.app.NotificationCompat
  * Foreground service that keeps the SMS listener running in the background.
  * This service registers the SmsReceiver, processes transactions locally,
  * and syncs to Firestore when online. Works independently of JavaScript.
+ * 
+ * Features:
+ * - START_STICKY for automatic restart if killed
+ * - Wake lock for reliable SMS processing
+ * - Network monitoring for automatic sync when online
+ * - Comprehensive logging for debugging
  */
 class SmsListenerService : Service() {
 
@@ -30,9 +38,16 @@ class SmsListenerService : Service() {
         private const val NOTIFICATION_ID = 1001
         private const val CHANNEL_ID = "equity_sms_channel"
         private const val CHANNEL_NAME = "Equity SMS Reconciliation"
+        private const val PREFS_NAME = "equity_sms_prefs"
+        private const val KEY_SERVICE_ENABLED = "service_enabled"
+        private const val WAKE_LOCK_TAG = "EquitySms:ServiceWakeLock"
         
         // Static reference for event forwarding to JS module
         var eventListener: ServiceEventListener? = null
+        
+        // Track if service is running
+        var isServiceRunning = false
+            private set
     }
 
     interface ServiceEventListener {
@@ -46,47 +61,81 @@ class SmsListenerService : Service() {
     private lateinit var firestoreRepository: FirestoreRepository
     private var connectivityManager: ConnectivityManager? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
+    private var wakeLock: PowerManager.WakeLock? = null
 
     override fun onCreate() {
         super.onCreate()
-        Log.d(TAG, "====== SMS LISTENER SERVICE CREATED ======")
+        Log.i(TAG, "╔═══════════════════════════════════════════╗")
+        Log.i(TAG, "║     SMS LISTENER SERVICE CREATED          ║")
+        Log.i(TAG, "╚═══════════════════════════════════════════╝")
+        Log.d(TAG, "Timestamp: ${System.currentTimeMillis()}")
+        Log.d(TAG, "Package: ${applicationContext.packageName}")
         
         // Initialize local storage and Firestore
-        Log.d(TAG, "Initializing LocalTransactionStore...")
+        Log.d(TAG, "Step 1: Initializing LocalTransactionStore...")
         localStore = LocalTransactionStore(applicationContext)
-        Log.d(TAG, "LocalTransactionStore initialized")
+        Log.d(TAG, "✓ LocalTransactionStore initialized")
         
-        Log.d(TAG, "Initializing FirestoreRepository...")
+        Log.d(TAG, "Step 2: Initializing FirestoreRepository...")
         firestoreRepository = FirestoreRepository(applicationContext)
-        Log.d(TAG, "FirestoreRepository initialized, available: ${firestoreRepository.isAvailable()}")
+        Log.d(TAG, "✓ FirestoreRepository initialized, available: ${firestoreRepository.isAvailable()}")
         
+        Log.d(TAG, "Step 3: Creating notification channel...")
         createNotificationChannel()
+        Log.d(TAG, "✓ Notification channel created")
+        
+        Log.d(TAG, "Step 4: Setting up network monitoring...")
         setupNetworkMonitoring()
-        Log.d(TAG, "==========================================")
+        Log.d(TAG, "✓ Network monitoring set up")
+        
+        // Mark service as enabled for boot receiver
+        markServiceEnabled(true)
+        
+        isServiceRunning = true
+        Log.i(TAG, "══════════════════════════════════════════════")
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        Log.d(TAG, "====== SMS LISTENER SERVICE STARTED ======")
-        Log.d(TAG, "Intent: $intent")
+        Log.i(TAG, "╔═══════════════════════════════════════════╗")
+        Log.i(TAG, "║     SMS LISTENER SERVICE STARTED          ║")
+        Log.i(TAG, "╚═══════════════════════════════════════════╝")
         Log.d(TAG, "Start ID: $startId")
+        Log.d(TAG, "Intent action: ${intent?.action}")
+        Log.d(TAG, "Started from boot: ${intent?.getBooleanExtra("started_from_boot", false)}")
+        
+        // Acquire wake lock for reliable processing
+        acquireWakeLock()
         
         // Start as foreground service with notification
+        Log.d(TAG, "Step A: Starting foreground with notification...")
         startForeground(NOTIFICATION_ID, createNotification())
-        Log.d(TAG, "Foreground service started with notification")
+        Log.d(TAG, "✓ Foreground service started")
         
         // Register SMS receiver and set up listener
+        Log.d(TAG, "Step B: Registering SMS receiver...")
         registerSmsReceiver()
+        Log.d(TAG, "✓ SMS receiver registered")
+        
+        Log.d(TAG, "Step C: Setting up SMS processing pipeline...")
         setupSmsProcessing()
+        Log.d(TAG, "✓ SMS processing pipeline ready")
         
         // Log current state
-        Log.d(TAG, "SmsReceiver.smsListener is null: ${SmsReceiver.smsListener == null}")
-        Log.d(TAG, "eventListener is null: ${eventListener == null}")
+        Log.d(TAG, "──────────────────────────────────────────────")
+        Log.d(TAG, "Service State Summary:")
+        Log.d(TAG, "  • SmsReceiver.smsListener: ${if (SmsReceiver.smsListener != null) "SET ✓" else "NULL ✗"}")
+        Log.d(TAG, "  • eventListener (JS): ${if (eventListener != null) "SET ✓" else "NULL (app may be closed)"}")
+        Log.d(TAG, "  • Firestore: ${if (firestoreRepository.isAvailable()) "AVAILABLE ✓" else "UNAVAILABLE ✗"}")
+        Log.d(TAG, "  • Network: ${if (isNetworkAvailable()) "ONLINE ✓" else "OFFLINE"}")
+        Log.d(TAG, "──────────────────────────────────────────────")
         
         // Sync any pending transactions
+        Log.d(TAG, "Step D: Syncing pending transactions...")
         syncPendingTransactions()
         
-        Log.d(TAG, "Returning START_STICKY")
-        Log.d(TAG, "==========================================")
+        Log.i(TAG, "══════════════════════════════════════════════")
+        Log.i(TAG, "SERVICE IS NOW LISTENING FOR SMS")
+        Log.i(TAG, "══════════════════════════════════════════════")
         
         // Return START_STICKY to ensure the service restarts if killed
         return START_STICKY
@@ -97,10 +146,63 @@ class SmsListenerService : Service() {
     }
 
     override fun onDestroy() {
-        super.onDestroy()
-        Log.d(TAG, "SmsListenerService destroyed")
+        Log.w(TAG, "╔═══════════════════════════════════════════╗")
+        Log.w(TAG, "║     SMS LISTENER SERVICE DESTROYED        ║")
+        Log.w(TAG, "╚═══════════════════════════════════════════╝")
+        
+        isServiceRunning = false
+        releaseWakeLock()
         unregisterSmsReceiver()
         unregisterNetworkCallback()
+        
+        // Note: Don't mark service as disabled here, as it might be killed by system
+        // and we want boot receiver to restart it
+        
+        Log.w(TAG, "Service cleanup complete")
+        super.onDestroy()
+    }
+
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        Log.w(TAG, "onTaskRemoved called - app was closed by user")
+        Log.d(TAG, "Service will continue running in background")
+        super.onTaskRemoved(rootIntent)
+    }
+
+    private fun acquireWakeLock() {
+        try {
+            if (wakeLock == null) {
+                val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+                wakeLock = powerManager.newWakeLock(
+                    PowerManager.PARTIAL_WAKE_LOCK,
+                    WAKE_LOCK_TAG
+                ).apply {
+                    setReferenceCounted(false)
+                }
+            }
+            wakeLock?.acquire(10 * 60 * 1000L) // 10 minutes max
+            Log.d(TAG, "✓ Wake lock acquired")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to acquire wake lock: ${e.message}")
+        }
+    }
+
+    private fun releaseWakeLock() {
+        try {
+            wakeLock?.let {
+                if (it.isHeld) {
+                    it.release()
+                    Log.d(TAG, "✓ Wake lock released")
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to release wake lock: ${e.message}")
+        }
+    }
+
+    private fun markServiceEnabled(enabled: Boolean) {
+        val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit().putBoolean(KEY_SERVICE_ENABLED, enabled).apply()
+        Log.d(TAG, "Service enabled preference set to: $enabled")
     }
 
     private fun createNotificationChannel() {
@@ -116,6 +218,7 @@ class SmsListenerService : Service() {
 
             val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             notificationManager.createNotificationChannel(channel)
+            Log.d(TAG, "Notification channel created: $CHANNEL_ID")
         }
     }
 
@@ -132,10 +235,11 @@ class SmsListenerService : Service() {
         )
 
         val pendingCount = localStore.getPendingTransactions().size
-        val statusText = if (pendingCount > 0) {
-            "Monitoring SMS • $pendingCount pending sync"
-        } else {
-            "Monitoring for rent payment notifications"
+        val syncedCount = localStore.getSyncedTransactions().size
+        val statusText = when {
+            pendingCount > 0 -> "Listening • $pendingCount pending sync"
+            syncedCount > 0 -> "Listening • $syncedCount transactions synced"
+            else -> "Listening for rent payment SMS"
         }
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
@@ -150,8 +254,13 @@ class SmsListenerService : Service() {
     }
 
     private fun updateNotification() {
-        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        notificationManager.notify(NOTIFICATION_ID, createNotification())
+        try {
+            val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            notificationManager.notify(NOTIFICATION_ID, createNotification())
+            Log.d(TAG, "Notification updated")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to update notification: ${e.message}")
+        }
     }
 
     private fun registerSmsReceiver() {
@@ -162,10 +271,13 @@ class SmsListenerService : Service() {
                     priority = IntentFilter.SYSTEM_HIGH_PRIORITY
                 }
                 registerReceiver(smsReceiver, filter)
-                Log.d(TAG, "SMS receiver registered successfully")
+                Log.i(TAG, "✓ SMS receiver registered with HIGH priority")
+            } else {
+                Log.d(TAG, "SMS receiver already registered")
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to register SMS receiver: ${e.message}")
+            Log.e(TAG, "✗ Failed to register SMS receiver: ${e.message}")
+            e.printStackTrace()
         }
     }
 
@@ -174,7 +286,8 @@ class SmsListenerService : Service() {
             smsReceiver?.let {
                 unregisterReceiver(it)
                 smsReceiver = null
-                Log.d(TAG, "SMS receiver unregistered successfully")
+                SmsReceiver.smsListener = null
+                Log.i(TAG, "✓ SMS receiver unregistered")
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to unregister SMS receiver: ${e.message}")
@@ -182,57 +295,66 @@ class SmsListenerService : Service() {
     }
 
     /**
-     * Sets up the SMS processing pipeline - this is the key fix.
-     * The listener is now set up directly in the service, not via JavaScript.
+     * Sets up the SMS processing pipeline - this is the key component.
+     * The listener is set up directly in the service, works independently of JavaScript.
      */
     private fun setupSmsProcessing() {
         Log.d(TAG, "Setting up SMS processing pipeline...")
         
         SmsReceiver.smsListener = object : SmsReceiver.SmsListener {
             override fun onSmsReceived(transaction: TransactionData) {
-                Log.d(TAG, "====== TRANSACTION RECEIVED IN SERVICE ======")
-                Log.d(TAG, "Transaction ID: ${transaction.id}")
-                Log.d(TAG, "Amount: ${transaction.amount} ${transaction.currency}")
-                Log.d(TAG, "MPESA Ref: ${transaction.mpesaReference}")
-                Log.d(TAG, "Sender: ${transaction.senderName}")
-                Log.d(TAG, "==============================================")
+                Log.i(TAG, "╔═══════════════════════════════════════════╗")
+                Log.i(TAG, "║     NEW TRANSACTION RECEIVED              ║")
+                Log.i(TAG, "╚═══════════════════════════════════════════╝")
+                Log.i(TAG, "Transaction ID: ${transaction.id}")
+                Log.i(TAG, "Amount: ${transaction.amount} ${transaction.currency}")
+                Log.i(TAG, "MPESA Ref: ${transaction.mpesaReference}")
+                Log.i(TAG, "Sender: ${transaction.senderName} (${transaction.senderPhone})")
+                Log.i(TAG, "Recipient: ${transaction.recipientName}")
+                Log.i(TAG, "Date/Time: ${transaction.transactionDate} ${transaction.transactionTime}")
+                Log.i(TAG, "══════════════════════════════════════════════")
+                
                 processTransaction(transaction)
             }
 
             override fun onSmsError(error: String) {
-                Log.e(TAG, "SMS processing error from receiver: $error")
+                Log.e(TAG, "════════════════════════════════════════════")
+                Log.e(TAG, "SMS PROCESSING ERROR: $error")
+                Log.e(TAG, "════════════════════════════════════════════")
                 eventListener?.onError(error, "sms_processing_error")
             }
         }
         
-        Log.d(TAG, "✓ SMS processing pipeline set up successfully")
-        Log.d(TAG, "SmsReceiver.smsListener is now: ${if (SmsReceiver.smsListener != null) "SET" else "NULL"}")
+        Log.i(TAG, "✓ SMS processing pipeline configured")
+        Log.d(TAG, "SmsReceiver.smsListener: ${if (SmsReceiver.smsListener != null) "ACTIVE" else "NULL"}")
     }
 
     /**
      * Processes a new transaction - saves locally first, then syncs to Firestore.
+     * This is the core offline-first processing logic.
      */
     private fun processTransaction(transaction: TransactionData) {
-        Log.d(TAG, "====== PROCESSING TRANSACTION ======")
-        Log.d(TAG, "Transaction: ${transaction.id}")
+        Log.d(TAG, "──────────────────────────────────────────────")
+        Log.d(TAG, "Processing transaction: ${transaction.id}")
         
         // Step 1: Save locally first (offline-first approach)
-        Log.d(TAG, "Step 1: Saving transaction locally...")
+        Log.d(TAG, "Step 1: Saving to local storage...")
         val savedLocally = localStore.savePendingTransaction(transaction)
         
         if (!savedLocally) {
-            Log.d(TAG, "Transaction already exists locally, skipping")
+            Log.w(TAG, "Transaction already exists locally (duplicate), skipping")
             return
         }
-        Log.d(TAG, "✓ Transaction saved locally")
+        Log.i(TAG, "✓ Transaction saved to local storage")
         
-        // Notify JS listener if available
-        Log.d(TAG, "Step 2: Notifying JS listener (if available)...")
+        // Step 2: Notify JS listener if available (app in foreground)
+        Log.d(TAG, "Step 2: Notifying JS listener...")
         if (eventListener != null) {
             eventListener?.onSmsReceived(transaction)
-            Log.d(TAG, "✓ JS listener notified")
+            Log.i(TAG, "✓ JS listener notified (app is in foreground)")
         } else {
-            Log.d(TAG, "JS listener is null - app may not be in foreground")
+            Log.d(TAG, "JS listener is null - app is closed/background (normal)")
+            Log.d(TAG, "Transaction will show when app is opened")
         }
         
         // Update notification to show pending count
@@ -241,36 +363,52 @@ class SmsListenerService : Service() {
         // Step 3: Try to sync to Firestore if online
         Log.d(TAG, "Step 3: Checking network for Firestore sync...")
         if (isNetworkAvailable()) {
-            Log.d(TAG, "Network available - syncing to Firestore")
+            Log.d(TAG, "Network available - initiating Firestore sync")
             syncTransactionToFirestore(transaction)
         } else {
-            Log.d(TAG, "Offline - transaction saved locally for later sync: ${transaction.id}")
+            Log.w(TAG, "OFFLINE - Transaction queued for later sync")
+            Log.d(TAG, "Pending transactions: ${localStore.getPendingTransactions().size}")
         }
         
-        Log.d(TAG, "====== TRANSACTION PROCESSING COMPLETE ======")
+        Log.d(TAG, "──────────────────────────────────────────────")
     }
 
     /**
      * Syncs a single transaction to Firestore.
      */
     private fun syncTransactionToFirestore(transaction: TransactionData) {
-        Log.d(TAG, "Syncing transaction to Firestore: ${transaction.id}")
-        Log.d(TAG, "Firestore available: ${firestoreRepository.isAvailable()}")
+        Log.d(TAG, "Syncing to Firestore: ${transaction.id}")
+        
+        if (!firestoreRepository.isAvailable()) {
+            Log.e(TAG, "✗ Firestore not available - check google-services.json")
+            return
+        }
         
         firestoreRepository.saveTransactionAsync(
             transaction,
             onSuccess = { id ->
-                Log.d(TAG, "✓ FIRESTORE SUCCESS: Transaction synced: $id")
+                Log.i(TAG, "════════════════════════════════════════════")
+                Log.i(TAG, "✓ FIRESTORE SYNC SUCCESS")
+                Log.i(TAG, "Transaction ID: $id")
+                Log.i(TAG, "Amount: ${transaction.amount} ${transaction.currency}")
+                Log.i(TAG, "════════════════════════════════════════════")
+                
                 localStore.markAsSynced(transaction.id)
                 updateNotification()
+                
                 if (eventListener != null) {
                     eventListener?.onTransactionSaved(id, transaction)
-                    Log.d(TAG, "JS event listener notified of save")
+                    Log.d(TAG, "✓ JS event listener notified of save")
                 }
             },
             onError = { error ->
-                Log.e(TAG, "✗ FIRESTORE FAILED: $error")
-                Log.e(TAG, "Transaction will remain in pending state for retry")
+                Log.e(TAG, "════════════════════════════════════════════")
+                Log.e(TAG, "✗ FIRESTORE SYNC FAILED")
+                Log.e(TAG, "Transaction: ${transaction.id}")
+                Log.e(TAG, "Error: $error")
+                Log.e(TAG, "Transaction remains in pending queue for retry")
+                Log.e(TAG, "════════════════════════════════════════════")
+                
                 eventListener?.onError(error, "firestore_save_failed", transaction)
             }
         )
@@ -278,43 +416,69 @@ class SmsListenerService : Service() {
 
     /**
      * Syncs all pending transactions to Firestore.
+     * Called on service start and when network becomes available.
      */
     private fun syncPendingTransactions() {
-        Log.d(TAG, "====== SYNC PENDING TRANSACTIONS ======")
+        Log.d(TAG, "──────────────────────────────────────────────")
+        Log.d(TAG, "SYNC PENDING TRANSACTIONS")
         
         if (!isNetworkAvailable()) {
-            Log.d(TAG, "Offline - skipping sync of pending transactions")
+            Log.d(TAG, "OFFLINE - Skipping sync of pending transactions")
+            return
+        }
+        
+        if (!firestoreRepository.isAvailable()) {
+            Log.w(TAG, "Firestore not available - skipping sync")
             return
         }
         
         val pending = localStore.getPendingTransactions()
-        Log.d(TAG, "Found ${pending.size} pending transactions to sync")
+        Log.d(TAG, "Found ${pending.size} pending transaction(s)")
         
         if (pending.isEmpty()) {
-            Log.d(TAG, "No pending transactions")
+            Log.d(TAG, "No pending transactions to sync")
             return
         }
         
-        for (transaction in pending) {
+        Log.i(TAG, "Syncing ${pending.size} pending transaction(s) to Firestore...")
+        
+        for ((index, transaction) in pending.withIndex()) {
+            Log.d(TAG, "Syncing ${index + 1}/${pending.size}: ${transaction.id}")
             syncTransactionToFirestore(transaction)
         }
+        
+        Log.d(TAG, "──────────────────────────────────────────────")
     }
 
     /**
      * Sets up network monitoring to sync when connectivity is restored.
+     * This ensures pending transactions are synced as soon as the device goes online.
      */
     private fun setupNetworkMonitoring() {
+        Log.d(TAG, "Setting up network monitoring...")
         connectivityManager = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
         
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             networkCallback = object : ConnectivityManager.NetworkCallback() {
                 override fun onAvailable(network: Network) {
-                    Log.d(TAG, "Network available - syncing pending transactions")
+                    Log.i(TAG, "════════════════════════════════════════════")
+                    Log.i(TAG, "NETWORK AVAILABLE - Syncing pending transactions")
+                    Log.i(TAG, "════════════════════════════════════════════")
                     syncPendingTransactions()
                 }
 
                 override fun onLost(network: Network) {
-                    Log.d(TAG, "Network lost - transactions will be synced when online")
+                    Log.w(TAG, "────────────────────────────────────────────")
+                    Log.w(TAG, "NETWORK LOST - Transactions will sync when online")
+                    Log.w(TAG, "────────────────────────────────────────────")
+                }
+
+                override fun onCapabilitiesChanged(
+                    network: Network,
+                    capabilities: NetworkCapabilities
+                ) {
+                    val hasInternet = capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                    Log.d(TAG, "Network capabilities changed - hasInternet: $hasInternet")
                 }
             }
             
@@ -322,7 +486,14 @@ class SmsListenerService : Service() {
                 .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
                 .build()
             
-            connectivityManager?.registerNetworkCallback(request, networkCallback!!)
+            try {
+                connectivityManager?.registerNetworkCallback(request, networkCallback!!)
+                Log.i(TAG, "✓ Network callback registered")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to register network callback: ${e.message}")
+            }
+        } else {
+            Log.d(TAG, "Network callback not available on this Android version")
         }
     }
 
@@ -331,6 +502,7 @@ class SmsListenerService : Service() {
             networkCallback?.let {
                 try {
                     connectivityManager?.unregisterNetworkCallback(it)
+                    Log.d(TAG, "✓ Network callback unregistered")
                 } catch (e: Exception) {
                     Log.e(TAG, "Failed to unregister network callback: ${e.message}")
                 }
@@ -344,10 +516,15 @@ class SmsListenerService : Service() {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             val network = cm.activeNetwork ?: return false
             val capabilities = cm.getNetworkCapabilities(network) ?: return false
-            capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            val hasInternet = capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            val hasValidated = capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+            Log.d(TAG, "Network check - hasInternet: $hasInternet, hasValidated: $hasValidated")
+            hasInternet && hasValidated
         } else {
             @Suppress("DEPRECATION")
-            cm.activeNetworkInfo?.isConnected == true
+            val isConnected = cm.activeNetworkInfo?.isConnected == true
+            Log.d(TAG, "Network check (legacy) - isConnected: $isConnected")
+            isConnected
         }
     }
 }

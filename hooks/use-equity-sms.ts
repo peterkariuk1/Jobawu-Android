@@ -34,8 +34,10 @@ interface UseEquitySmsReturn {
   refreshLocalTransactions: () => void;
   /** Mark a transaction as reconciled */
   markAsReconciled: (transactionId: string) => Promise<boolean>;
-  /** Parse an SMS message (for testing) */
+  /** Parse an SMS message (for testing - does NOT save to Firebase) */
   parseSms: (smsBody: string, sender: string) => TransactionData | null;
+  /** Parse an SMS and save to Firebase (for testing full flow) */
+  testParseAndSave: (smsBody: string, sender: string) => Promise<TransactionData | null>;
 }
 
 /**
@@ -236,12 +238,52 @@ export function useEquitySms(): UseEquitySmsReturn {
     if (Platform.OS !== 'android') return null;
 
     try {
-      return EquitySmsModule.parseSms(smsBody, sender);
+      console.log('[EquitySms] Parsing SMS (test only, no save)...');
+      const result = EquitySmsModule.parseSms(smsBody, sender);
+      if (result) {
+        console.log('[EquitySms] Parse successful:', result.id);
+      } else {
+        console.log('[EquitySms] Parse failed - message format not recognized');
+      }
+      return result;
     } catch (error) {
       console.error('[EquitySms] Failed to parse SMS:', error);
       return null;
     }
   }, []);
+
+  const testParseAndSave = useCallback(async (smsBody: string, sender: string): Promise<TransactionData | null> => {
+    if (Platform.OS !== 'android') {
+      console.log('[EquitySms] testParseAndSave not available on this platform');
+      return null;
+    }
+
+    try {
+      console.log('[EquitySms] Testing parse AND save to Firebase...');
+      console.log('[EquitySms] Sender:', sender);
+      console.log('[EquitySms] SMS length:', smsBody.length);
+      
+      const result = await EquitySmsModule.testParseAndSave(smsBody, sender);
+      
+      if (result.success && result.transaction) {
+        console.log('[EquitySms] ✓ Test parse and save successful!');
+        console.log('[EquitySms] Transaction ID:', result.transaction.id);
+        console.log('[EquitySms] Amount:', result.transaction.amount);
+        
+        // Refresh local transactions to include the new one
+        refreshLocalTransactions();
+        
+        return result.transaction;
+      } else {
+        console.log('[EquitySms] ✗ Test parse and save failed');
+        return null;
+      }
+    } catch (error) {
+      console.error('[EquitySms] Failed to test parse and save:', error);
+      setLastError(error instanceof Error ? error.message : 'Test parse and save failed');
+      return null;
+    }
+  }, [refreshLocalTransactions]);
 
   const getLocalTransactions = useCallback((): TransactionData[] => {
     if (Platform.OS !== 'android') return [];
@@ -268,5 +310,6 @@ export function useEquitySms(): UseEquitySmsReturn {
     refreshLocalTransactions,
     markAsReconciled,
     parseSms,
+    testParseAndSave,
   };
 }

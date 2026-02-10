@@ -105,8 +105,11 @@ class EquitySmsModule : Module() {
 
         // Check if service is running
         Function("isListening") {
-            // Check if service is running by checking if the listener is set
-            SmsReceiver.smsListener != null
+            val smsListenerSet = SmsReceiver.smsListener != null
+            val serviceRunning = SmsListenerService.isServiceRunning
+            val result = smsListenerSet || serviceRunning
+            Log.d(TAG, "isListening: smsListener=$smsListenerSet, serviceRunning=$serviceRunning, result=$result")
+            result
         }
 
         // Check required permissions
@@ -162,10 +165,88 @@ class EquitySmsModule : Module() {
 
         // Parse an SMS message (for testing)
         Function("parseSms") { smsBody: String, sender: String ->
-            Log.d(TAG, "Parsing SMS: $smsBody")
+            Log.d(TAG, "====== PARSE SMS (TEST) ======")
+            Log.d(TAG, "Sender: $sender")
+            Log.d(TAG, "Body: ${smsBody.take(100)}...")
             
             val transaction = SmsParser.parseEquityBankSms(smsBody, sender)
+            if (transaction != null) {
+                Log.i(TAG, "✓ Parse successful - Transaction ID: ${transaction.id}")
+                Log.i(TAG, "  Amount: ${transaction.amount} ${transaction.currency}")
+                Log.i(TAG, "  MPESA Ref: ${transaction.mpesaReference}")
+            } else {
+                Log.w(TAG, "✗ Parse failed - message format not recognized")
+            }
+            Log.d(TAG, "==============================")
+            
             transaction?.toMap()
+        }
+
+        // Parse an SMS and save to Firestore (for testing full flow)
+        AsyncFunction("testParseAndSave") { smsBody: String, sender: String ->
+            Log.d(TAG, "====== TEST PARSE AND SAVE ======")
+            Log.d(TAG, "This simulates the full SMS -> Parse -> Local -> Firestore flow")
+            Log.d(TAG, "Sender: $sender")
+            Log.d(TAG, "Body length: ${smsBody.length}")
+            
+            val transaction = SmsParser.parseEquityBankSms(smsBody, sender)
+            
+            if (transaction == null) {
+                Log.e(TAG, "✗ Parse failed - cannot save to Firestore")
+                throw Exception("Failed to parse SMS message")
+            }
+            
+            Log.i(TAG, "✓ Parse successful: ${transaction.id}")
+            
+            // Save locally first (like real flow)
+            val savedLocally = localStore.savePendingTransaction(transaction)
+            if (savedLocally) {
+                Log.i(TAG, "✓ Saved to local storage")
+            } else {
+                Log.d(TAG, "Transaction already exists locally (duplicate)")
+            }
+            
+            // Emit SMS received event
+            sendEvent("onSmsReceived", mapOf(
+                "transaction" to transaction.toMap()
+            ))
+            Log.d(TAG, "✓ onSmsReceived event sent")
+            
+            // Save to Firestore
+            try {
+                coroutineScope.launch {
+                    val result = firestoreRepository.saveTransaction(transaction)
+                    result.fold(
+                        onSuccess = { id ->
+                            Log.i(TAG, "====== TEST SAVE SUCCESS ======")
+                            Log.i(TAG, "Transaction synced to Firestore: $id")
+                            Log.i(TAG, "================================")
+                            localStore.markAsSynced(transaction.id)
+                            sendEvent("onTransactionSaved", mapOf(
+                                "success" to true,
+                                "transactionId" to id,
+                                "transaction" to transaction.toMap()
+                            ))
+                        },
+                        onFailure = { error ->
+                            Log.e(TAG, "====== TEST SAVE FAILED ======")
+                            Log.e(TAG, "Error: ${error.message}")
+                            Log.e(TAG, "Transaction remains in local pending queue")
+                            Log.e(TAG, "===============================")
+                            sendEvent("onError", mapOf(
+                                "error" to (error.message ?: "Firestore sync failed"),
+                                "type" to "firestore_save_failed",
+                                "transaction" to transaction.toMap()
+                            ))
+                        }
+                    )
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Firestore save error: ${e.message}")
+            }
+            
+            Log.d(TAG, "=================================")
+            mapOf("success" to true, "transaction" to transaction.toMap())
         }
 
         // Get unreconciled transactions from Firestore
@@ -195,14 +276,39 @@ class EquitySmsModule : Module() {
 
         // Mark transaction as reconciled
         AsyncFunction("markAsReconciled") { transactionId: String, promise: Promise ->
+            Log.d(TAG, "markAsReconciled called for: $transactionId")
+            
+            // Update local storage first (offline-first)
+            val localSuccess = localStore.markAsReconciled(transactionId)
+            if (localSuccess) {
+                Log.d(TAG, "✓ Marked as reconciled locally")
+            } else {
+                Log.w(TAG, "Transaction not found locally")
+            }
+            
+            // Then update Firestore
             coroutineScope.launch {
                 val result = firestoreRepository.markAsReconciled(transactionId)
                 result.fold(
                     onSuccess = {
+                        Log.i(TAG, "====== RECONCILIATION SUCCESS ======")
+                        Log.i(TAG, "Transaction: $transactionId")
+                        Log.i(TAG, "Updated in: Firestore + Local")
+                        Log.i(TAG, "====================================")
                         promise.resolve(mapOf("success" to true, "transactionId" to transactionId))
                     },
                     onFailure = { error ->
-                        promise.reject("UPDATE_ERROR", error.message ?: "Failed to update transaction", error)
+                        Log.e(TAG, "====== RECONCILIATION FAILED ======")
+                        Log.e(TAG, "Transaction: $transactionId")
+                        Log.e(TAG, "Error: ${error.message}")
+                        Log.e(TAG, "Local update: ${if (localSuccess) "SUCCESS" else "FAILED"}")
+                        Log.e(TAG, "===================================")
+                        // Still resolve with partial success if local worked
+                        if (localSuccess) {
+                            promise.resolve(mapOf("success" to true, "transactionId" to transactionId, "firestoreError" to error.message))
+                        } else {
+                            promise.reject("UPDATE_ERROR", error.message ?: "Failed to update transaction", error)
+                        }
                     }
                 )
             }

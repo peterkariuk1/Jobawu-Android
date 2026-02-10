@@ -63,6 +63,15 @@ declare class EquitySmsModule extends NativeModule<EquitySmsModuleEvents> {
   parseSms(smsBody: string, sender: string): TransactionData | null;
 
   /**
+   * Parses an SMS and saves to Firestore (for testing full flow).
+   * This simulates the complete SMS -> Parse -> Local -> Firestore flow.
+   * @param smsBody - The SMS message body
+   * @param sender - The SMS sender address
+   * @returns Promise with result containing parsed transaction
+   */
+  testParseAndSave(smsBody: string, sender: string): Promise<{ success: boolean; transaction: TransactionData }>;
+
+  /**
    * Retrieves all unreconciled transactions from Firestore.
    * @returns Promise with array of unreconciled transactions
    */

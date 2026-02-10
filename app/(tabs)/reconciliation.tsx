@@ -1,11 +1,16 @@
 import type { TransactionData } from 'equity-sms';
 import React, { useEffect } from 'react';
-import { Alert, FlatList, Platform, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, FlatList, Platform, RefreshControl, Text, TouchableOpacity, View } from 'react-native';
 import { useEquitySms } from '../../hooks/use-equity-sms';
 
 /**
- * Example screen demonstrating SMS reconciliation functionality.
- * This shows how to use the useEquitySms hook for rent payment monitoring.
+ * SMS Reconciliation Screen
+ * 
+ * Features:
+ * - Real-time SMS monitoring for Equity Bank transactions
+ * - Offline-first with automatic Firestore sync
+ * - Test parse (no save) and test parse+save buttons
+ * - Transaction reconciliation workflow
  */
 export default function ReconciliationScreen() {
   const {
@@ -17,13 +22,14 @@ export default function ReconciliationScreen() {
     startListening,
     stopListening,
     requestPermissions,
-    getUnreconciledTransactions,
     refreshLocalTransactions,
     markAsReconciled,
     parseSms,
+    testParseAndSave,
   } = useEquitySms();
 
   const [refreshing, setRefreshing] = React.useState(false);
+  const [isTesting, setIsTesting] = React.useState(false);
 
   // Request permissions on mount
   useEffect(() => {
@@ -31,7 +37,7 @@ export default function ReconciliationScreen() {
       console.log('[Reconciliation] Requesting permissions...');
       requestPermissions();
     }
-  }, [permissions]);
+  }, [permissions, requestPermissions]);
 
   // Auto-start listening when permissions are granted
   useEffect(() => {
@@ -41,7 +47,7 @@ export default function ReconciliationScreen() {
         console.error('[Reconciliation] Failed to auto-start:', err);
       });
     }
-  }, [permissions?.allGranted]);
+  }, [permissions?.allGranted, isListening, startListening]);
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -61,31 +67,72 @@ export default function ReconciliationScreen() {
     }
   };
 
-  const handleTestParse = () => {
-    // Test SMS parsing with sample message
-    const testSms = `Confirmed KES. 7,940.00 to GRACEWANGECHIMUREITHI A/C Ref.Number 11111 Via MPESA Ref UAGH013ERL6 by Dennis Ngumbi Agnes Phone 25479354525 on 10-01-2026 at 10:39.Thank you.`;
+  // Test SMS message - matches Equity Bank format
+  const TEST_SMS = `Confirmed KES. 7,940.00 to GRACEWANGECHIMUREITHI A/C Ref.Number 11111 Via MPESA Ref UAGH013ERL6 by Dennis Ngumbi Agnes Phone 25479354525 on 10-01-2026 at 10:39.Thank you.`;
+  const TEST_SENDER = 'pjeykrs2';
+
+  const handleTestParseOnly = () => {
+    console.log('[Reconciliation] ====== TEST PARSE ONLY ======');
+    console.log('[Reconciliation] This only parses, does NOT save to Firebase');
     
-    console.log('[Reconciliation] Testing SMS parse...');
-    const result = parseSms(testSms, 'pjeykrs2');
+    const result = parseSms(TEST_SMS, TEST_SENDER);
     
     if (result) {
-      console.log('[Reconciliation] Parse successful:', result);
+      console.log('[Reconciliation] ✓ Parse successful:', result);
       Alert.alert(
-        'Parse Result',
-        `Amount: KES ${result.amount}\nRecipient: ${result.recipientName}\nSender: ${result.senderName}\nRef: ${result.mpesaReference}`
+        '✓ Parse Successful (Not Saved)',
+        `Amount: KES ${result.amount.toLocaleString()}\n` +
+        `Recipient: ${result.recipientName}\n` +
+        `Sender: ${result.senderName}\n` +
+        `Phone: ${result.senderPhone}\n` +
+        `MPESA Ref: ${result.mpesaReference}\n` +
+        `Date: ${result.transactionDate} ${result.transactionTime}\n\n` +
+        `Note: This was just a parse test. Use "Test & Save" to save to Firebase.`
       );
     } else {
-      console.log('[Reconciliation] Parse failed');
-      Alert.alert('Parse Failed', 'Could not parse the SMS message');
+      console.log('[Reconciliation] ✗ Parse failed');
+      Alert.alert('✗ Parse Failed', 'Could not parse the SMS message. Check Logcat for details.');
+    }
+  };
+
+  const handleTestParseAndSave = async () => {
+    console.log('[Reconciliation] ====== TEST PARSE AND SAVE ======');
+    console.log('[Reconciliation] This parses AND saves to Firebase');
+    
+    setIsTesting(true);
+    
+    try {
+      const result = await testParseAndSave(TEST_SMS, TEST_SENDER);
+      
+      if (result) {
+        console.log('[Reconciliation] ✓ Parse and save successful!');
+        Alert.alert(
+          '✓ Saved to Firebase!',
+          `Transaction saved successfully!\n\n` +
+          `ID: ${result.id}\n` +
+          `Amount: KES ${result.amount.toLocaleString()}\n` +
+          `MPESA Ref: ${result.mpesaReference}\n\n` +
+          `Check Logcat for detailed logs.`
+        );
+      } else {
+        console.log('[Reconciliation] ✗ Parse and save failed');
+        Alert.alert('✗ Save Failed', 'Parse succeeded but save failed. Check Logcat for details.');
+      }
+    } catch (error) {
+      console.error('[Reconciliation] Test error:', error);
+      Alert.alert('Error', error instanceof Error ? error.message : 'Unknown error occurred');
+    } finally {
+      setIsTesting(false);
     }
   };
 
   const handleReconcile = async (transactionId: string) => {
     const success = await markAsReconciled(transactionId);
     if (success) {
-      Alert.alert('Success', 'Transaction marked as reconciled');
+      Alert.alert('✓ Success', 'Transaction marked as reconciled');
+      refreshLocalTransactions();
     } else {
-      Alert.alert('Error', 'Failed to reconcile transaction');
+      Alert.alert('✗ Error', 'Failed to reconcile transaction. Check logs for details.');
     }
   };
 
@@ -170,7 +217,7 @@ export default function ReconciliationScreen() {
         )}
 
         {/* Control Buttons */}
-        <View className="flex-row space-x-2">
+        <View className="flex-row space-x-2 mb-2">
           <TouchableOpacity
             onPress={handleToggleListening}
             className={`flex-1 rounded-md py-3 ${isListening ? 'bg-red-500' : 'bg-green-500'}`}
@@ -179,12 +226,25 @@ export default function ReconciliationScreen() {
               {isListening ? 'Stop Listening' : 'Start Listening'}
             </Text>
           </TouchableOpacity>
+        </View>
+        
+        {/* Test Buttons Row */}
+        <View className="flex-row space-x-2">
+          <TouchableOpacity
+            onPress={handleTestParseOnly}
+            className="flex-1 bg-gray-500 rounded-md py-3"
+          >
+            <Text className="text-white text-center font-medium text-sm">Test Parse</Text>
+          </TouchableOpacity>
           
           <TouchableOpacity
-            onPress={handleTestParse}
-            className="flex-1 bg-blue-500 rounded-md py-3"
+            onPress={handleTestParseAndSave}
+            disabled={isTesting}
+            className={`flex-1 rounded-md py-3 ${isTesting ? 'bg-blue-300' : 'bg-blue-500'}`}
           >
-            <Text className="text-white text-center font-medium">Test Parse</Text>
+            <Text className="text-white text-center font-medium text-sm">
+              {isTesting ? 'Saving...' : 'Test & Save'}
+            </Text>
           </TouchableOpacity>
         </View>
       </View>
