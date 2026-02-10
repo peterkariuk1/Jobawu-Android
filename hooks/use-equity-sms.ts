@@ -1,10 +1,10 @@
 import EquitySmsModule, {
-  ErrorEvent,
-  PermissionStatus,
-  ServiceStatusEvent,
-  SmsReceivedEvent,
-  TransactionData,
-  TransactionSavedEvent,
+    ErrorEvent,
+    PermissionStatus,
+    ServiceStatusEvent,
+    SmsReceivedEvent,
+    TransactionData,
+    TransactionSavedEvent,
 } from 'equity-sms';
 import { useCallback, useEffect, useState } from 'react';
 import { Alert, PermissionsAndroid, Platform } from 'react-native';
@@ -14,11 +14,13 @@ interface UseEquitySmsReturn {
   isListening: boolean;
   /** Current permission status */
   permissions: PermissionStatus | null;
-  /** Recent transactions received via SMS */
+  /** Recent transactions received via SMS (from local storage + live) */
   transactions: TransactionData[];
+  /** Pending transactions not yet synced to Firestore */
+  pendingTransactions: TransactionData[];
   /** Last error that occurred */
   lastError: string | null;
-  /** Start the SMS listener service */
+  /** Start the SMS listener service (usually auto-started) */
   startListening: () => Promise<void>;
   /** Stop the SMS listener service */
   stopListening: () => Promise<void>;
@@ -26,6 +28,10 @@ interface UseEquitySmsReturn {
   requestPermissions: () => Promise<boolean>;
   /** Get unreconciled transactions from Firestore */
   getUnreconciledTransactions: () => Promise<TransactionData[]>;
+  /** Get local transactions (works offline) */
+  getLocalTransactions: () => TransactionData[];
+  /** Refresh local transactions from storage */
+  refreshLocalTransactions: () => void;
   /** Mark a transaction as reconciled */
   markAsReconciled: (transactionId: string) => Promise<boolean>;
   /** Parse an SMS message (for testing) */
@@ -34,21 +40,37 @@ interface UseEquitySmsReturn {
 
 /**
  * Hook for managing Equity Bank SMS reconciliation.
- * Provides methods to start/stop listening, manage permissions,
- * and handle transaction data.
+ * The SMS listener auto-starts when permissions are granted.
+ * Provides offline-first transaction access via local storage.
  */
 export function useEquitySms(): UseEquitySmsReturn {
   const [isListening, setIsListening] = useState(false);
   const [permissions, setPermissions] = useState<PermissionStatus | null>(null);
   const [transactions, setTransactions] = useState<TransactionData[]>([]);
+  const [pendingTransactions, setPendingTransactions] = useState<TransactionData[]>([]);
   const [lastError, setLastError] = useState<string | null>(null);
 
-  // Check initial status
+  // Load local transactions on mount
+  const refreshLocalTransactions = useCallback(() => {
+    if (Platform.OS !== 'android') return;
+    
+    try {
+      const local = EquitySmsModule.getLocalTransactions();
+      const pending = EquitySmsModule.getPendingTransactions();
+      setTransactions(local);
+      setPendingTransactions(pending);
+    } catch (error) {
+      console.error('[EquitySms] Failed to load local transactions:', error);
+    }
+  }, []);
+
+  // Check initial status and load transactions
   useEffect(() => {
     if (Platform.OS === 'android') {
       checkStatus();
+      refreshLocalTransactions();
     }
-  }, []);
+  }, [refreshLocalTransactions]);
 
   // Set up event listeners
   useEffect(() => {
@@ -57,10 +79,28 @@ export function useEquitySms(): UseEquitySmsReturn {
     const subscriptions = [
       EquitySmsModule.addListener('onSmsReceived', (event: SmsReceivedEvent) => {
         console.log('[EquitySms] SMS received:', event.transaction);
-        setTransactions((prev) => [event.transaction, ...prev]);
+        // Add to transactions list and refresh from local storage
+        setTransactions((prev) => {
+          // Avoid duplicates
+          const exists = prev.some(t => t.id === event.transaction.id);
+          if (exists) return prev;
+          return [event.transaction, ...prev];
+        });
+        // Refresh pending count
+        try {
+          setPendingTransactions(EquitySmsModule.getPendingTransactions());
+        } catch (e) {
+          console.error('[EquitySms] Failed to refresh pending:', e);
+        }
       }),
       EquitySmsModule.addListener('onTransactionSaved', (event: TransactionSavedEvent) => {
-        console.log('[EquitySms] Transaction saved:', event.transactionId);
+        console.log('[EquitySms] Transaction saved to Firestore:', event.transactionId);
+        // Refresh pending count after successful sync
+        try {
+          setPendingTransactions(EquitySmsModule.getPendingTransactions());
+        } catch (e) {
+          console.error('[EquitySms] Failed to refresh pending:', e);
+        }
       }),
       EquitySmsModule.addListener('onError', (event: ErrorEvent) => {
         console.error('[EquitySms] Error:', event.error);
@@ -108,6 +148,14 @@ export function useEquitySms(): UseEquitySmsReturn {
           'Permissions Required',
           'SMS permissions are required for rent payment reconciliation. Please grant them in app settings.'
         );
+      } else {
+        // Auto-start the service after permissions are granted
+        try {
+          await EquitySmsModule.startListening();
+          console.log('[EquitySms] Service auto-started after permission grant');
+        } catch (e) {
+          console.error('[EquitySms] Failed to auto-start service:', e);
+        }
       }
 
       checkStatus();
@@ -195,15 +243,29 @@ export function useEquitySms(): UseEquitySmsReturn {
     }
   }, []);
 
+  const getLocalTransactions = useCallback((): TransactionData[] => {
+    if (Platform.OS !== 'android') return [];
+
+    try {
+      return EquitySmsModule.getLocalTransactions();
+    } catch (error) {
+      console.error('[EquitySms] Failed to get local transactions:', error);
+      return [];
+    }
+  }, []);
+
   return {
     isListening,
     permissions,
     transactions,
+    pendingTransactions,
     lastError,
     startListening,
     stopListening,
     requestPermissions,
     getUnreconciledTransactions,
+    getLocalTransactions,
+    refreshLocalTransactions,
     markAsReconciled,
     parseSms,
   };

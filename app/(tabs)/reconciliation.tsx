@@ -12,21 +12,42 @@ export default function ReconciliationScreen() {
     isListening,
     permissions,
     transactions,
+    pendingTransactions,
     lastError,
     startListening,
     stopListening,
     requestPermissions,
     getUnreconciledTransactions,
+    refreshLocalTransactions,
     markAsReconciled,
     parseSms,
   } = useEquitySms();
 
+  const [refreshing, setRefreshing] = React.useState(false);
+
   // Request permissions on mount
   useEffect(() => {
     if (Platform.OS === 'android' && permissions && !permissions.allGranted) {
+      console.log('[Reconciliation] Requesting permissions...');
       requestPermissions();
     }
   }, [permissions]);
+
+  // Auto-start listening when permissions are granted
+  useEffect(() => {
+    if (Platform.OS === 'android' && permissions?.allGranted && !isListening) {
+      console.log('[Reconciliation] Permissions granted, starting listener...');
+      startListening().catch(err => {
+        console.error('[Reconciliation] Failed to auto-start:', err);
+      });
+    }
+  }, [permissions?.allGranted]);
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    refreshLocalTransactions();
+    setRefreshing(false);
+  };
 
   const handleToggleListening = async () => {
     try {
@@ -44,14 +65,17 @@ export default function ReconciliationScreen() {
     // Test SMS parsing with sample message
     const testSms = `Confirmed KES. 7,940.00 to GRACEWANGECHIMUREITHI A/C Ref.Number 11111 Via MPESA Ref UAGH013ERL6 by Dennis Ngumbi Agnes Phone 25479354525 on 10-01-2026 at 10:39.Thank you.`;
     
+    console.log('[Reconciliation] Testing SMS parse...');
     const result = parseSms(testSms, 'pjeykrs2');
     
     if (result) {
+      console.log('[Reconciliation] Parse successful:', result);
       Alert.alert(
         'Parse Result',
         `Amount: KES ${result.amount}\nRecipient: ${result.recipientName}\nSender: ${result.senderName}\nRef: ${result.mpesaReference}`
       );
     } else {
+      console.log('[Reconciliation] Parse failed');
       Alert.alert('Parse Failed', 'Could not parse the SMS message');
     }
   };
@@ -113,16 +137,30 @@ export default function ReconciliationScreen() {
       <View className="bg-white p-4 border-b border-gray-200">
         <View className="flex-row justify-between items-center mb-3">
           <Text className="text-xl font-bold text-gray-800">SMS Reconciliation</Text>
-          <View className={`w-3 h-3 rounded-full ${isListening ? 'bg-green-500' : 'bg-gray-400'}`} />
+          <View className="flex-row items-center">
+            <View className={`w-3 h-3 rounded-full ${isListening ? 'bg-green-500' : 'bg-gray-400'}`} />
+            <Text className="ml-2 text-sm text-gray-600">
+              {isListening ? 'Listening' : 'Stopped'}
+            </Text>
+          </View>
         </View>
         
         {/* Permission Status */}
-        <View className="flex-row items-center mb-3">
+        <View className="flex-row items-center mb-2">
           <Text className="text-gray-600 mr-2">SMS Permission:</Text>
           <Text className={`font-medium ${permissions?.sms ? 'text-green-600' : 'text-red-600'}`}>
             {permissions?.sms ? 'Granted' : 'Not Granted'}
           </Text>
         </View>
+
+        {/* Pending Sync Status */}
+        {pendingTransactions.length > 0 && (
+          <View className="bg-yellow-50 p-2 rounded-md mb-2">
+            <Text className="text-yellow-700 text-sm">
+              {pendingTransactions.length} transaction(s) pending Firestore sync
+            </Text>
+          </View>
+        )}
 
         {/* Error Display */}
         {lastError && (
@@ -161,7 +199,9 @@ export default function ReconciliationScreen() {
           <View className="flex-1 items-center justify-center">
             <Text className="text-gray-400 text-center">
               No transactions yet.{'\n'}
-              Start listening to receive SMS notifications.
+              Send a test SMS from 'pjeykrs2' or Equity Bank.{'\n\n'}
+              Check Logcat for debugging:{'\n'}
+              adb logcat -s EquitySmsReceiver EquitySmsParser SmsListenerService
             </Text>
           </View>
         ) : (
@@ -170,6 +210,12 @@ export default function ReconciliationScreen() {
             renderItem={renderTransaction}
             keyExtractor={(item) => item.id}
             showsVerticalScrollIndicator={false}
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={handleRefresh}
+              />
+            }
           />
         )}
       </View>

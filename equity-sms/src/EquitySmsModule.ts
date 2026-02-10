@@ -1,10 +1,10 @@
 import { NativeModule, requireNativeModule } from 'expo';
 
 import {
-  EquitySmsModuleEvents,
-  PermissionStatus,
-  ServiceResult,
-  TransactionData,
+    EquitySmsModuleEvents,
+    PermissionStatus,
+    ServiceResult,
+    TransactionData,
 } from './EquitySms.types';
 
 /**
@@ -81,6 +81,19 @@ declare class EquitySmsModule extends NativeModule<EquitySmsModuleEvents> {
    * @returns Promise with the transaction data or null
    */
   getTransaction(transactionId: string): Promise<TransactionData | null>;
+
+  /**
+   * Gets all local transactions (pending + synced).
+   * Works offline - reads from local storage.
+   * @returns Array of all locally stored transactions
+   */
+  getLocalTransactions(): TransactionData[];
+
+  /**
+   * Gets pending transactions that haven't been synced to Firestore yet.
+   * @returns Array of pending transactions
+   */
+  getPendingTransactions(): TransactionData[];
 }
 
 // This call loads the native module object from the JSI.

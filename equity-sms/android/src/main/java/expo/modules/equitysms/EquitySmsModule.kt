@@ -27,6 +27,10 @@ class EquitySmsModule : Module() {
         FirestoreRepository(context)
     }
 
+    private val localStore: LocalTransactionStore by lazy {
+        LocalTransactionStore(context)
+    }
+
     private val coroutineScope = CoroutineScope(Dispatchers.IO)
 
     override fun definition() = ModuleDefinition {
@@ -40,41 +44,46 @@ class EquitySmsModule : Module() {
             "onServiceStatusChanged"
         )
 
-        // Start the SMS listener service
+        // Called when the module is created - auto-start the service
+        OnCreate {
+            Log.d(TAG, "====== EQUITY SMS MODULE CREATED ======")
+            Log.d(TAG, "Setting up service event listener...")
+            setupServiceEventListener()
+            Log.d(TAG, "Checking for auto-start...")
+            autoStartServiceIfPermitted()
+            Log.d(TAG, "==========================================")
+        }
+
+        // Start the SMS listener service (kept for manual restart if needed)
         AsyncFunction("startListening") {
-            Log.d(TAG, "Starting SMS listener service")
+            Log.d(TAG, "startListening() called from JavaScript")
             
             if (!hasRequiredPermissions()) {
+                Log.e(TAG, "Permissions not granted!")
                 throw Exception("Required permissions not granted. Please grant SMS and notification permissions.")
             }
             
             try {
-                val serviceIntent = Intent(context, SmsListenerService::class.java)
-                
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    context.startForegroundService(serviceIntent)
-                } else {
-                    context.startService(serviceIntent)
-                }
-                
-                // Set up the SMS listener to forward events to JS
-                setupSmsListener()
+                Log.d(TAG, "Starting service...")
+                startService()
                 
                 sendEvent("onServiceStatusChanged", mapOf(
                     "status" to "started",
                     "message" to "SMS listener service started successfully"
                 ))
                 
+                Log.d(TAG, "✓ Service started successfully")
                 mapOf("success" to true, "message" to "SMS listener started")
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to start SMS listener: ${e.message}")
+                e.printStackTrace()
                 throw Exception("Failed to start SMS listener: ${e.message}")
             }
         }
 
         // Stop the SMS listener service
         AsyncFunction("stopListening") {
-            Log.d(TAG, "Stopping SMS listener service")
+            Log.d(TAG, "stopListening() called from JavaScript")
             
             try {
                 val serviceIntent = Intent(context, SmsListenerService::class.java)
@@ -159,7 +168,7 @@ class EquitySmsModule : Module() {
             transaction?.toMap()
         }
 
-        // Get unreconciled transactions
+        // Get unreconciled transactions from Firestore
         AsyncFunction("getUnreconciledTransactions") { promise: Promise ->
             coroutineScope.launch {
                 val result = firestoreRepository.getUnreconciledTransactions()
@@ -172,6 +181,16 @@ class EquitySmsModule : Module() {
                     }
                 )
             }
+        }
+
+        // Get all local transactions (pending + synced) - works offline
+        Function("getLocalTransactions") {
+            localStore.getAllTransactions().map { it.toMap() }
+        }
+
+        // Get pending transactions (not yet synced to Firestore)
+        Function("getPendingTransactions") {
+            localStore.getPendingTransactions().map { it.toMap() }
         }
 
         // Mark transaction as reconciled
@@ -205,60 +224,107 @@ class EquitySmsModule : Module() {
         }
     }
 
-    private fun setupSmsListener() {
-        SmsReceiver.smsListener = object : SmsReceiver.SmsListener {
+    /**
+     * Sets up the event listener to forward service events to JavaScript.
+     */
+    private fun setupServiceEventListener() {
+        Log.d(TAG, "Setting up ServiceEventListener...")
+        
+        SmsListenerService.eventListener = object : SmsListenerService.ServiceEventListener {
             override fun onSmsReceived(transaction: TransactionData) {
-                Log.d(TAG, "SMS received and parsed: ${transaction.id}")
-                
-                // Send event to JavaScript immediately
+                Log.d(TAG, "====== EVENT: SMS RECEIVED ======")
+                Log.d(TAG, "Transaction ID: ${transaction.id}")
+                Log.d(TAG, "Amount: ${transaction.amount}")
+                Log.d(TAG, "Forwarding to JavaScript...")
                 sendEvent("onSmsReceived", mapOf(
                     "transaction" to transaction.toMap()
                 ))
-                
-                // Save to Firestore
-                firestoreRepository.saveTransactionAsync(
-                    transaction,
-                    onSuccess = { id ->
-                        Log.d(TAG, "Transaction saved to Firestore: $id")
-                        sendEvent("onTransactionSaved", mapOf(
-                            "success" to true,
-                            "transactionId" to id,
-                            "transaction" to transaction.toMap()
-                        ))
-                    },
-                    onError = { error ->
-                        Log.e(TAG, "Failed to save to Firestore: $error")
-                        sendEvent("onError", mapOf(
-                            "error" to error,
-                            "type" to "firestore_save_failed",
-                            "transaction" to transaction.toMap()
-                        ))
-                    }
-                )
+                Log.d(TAG, "✓ Event sent to JavaScript")
             }
 
-            override fun onSmsError(error: String) {
-                Log.e(TAG, "SMS processing error: $error")
-                sendEvent("onError", mapOf(
-                    "error" to error,
-                    "type" to "sms_processing_error"
+            override fun onTransactionSaved(transactionId: String, transaction: TransactionData) {
+                Log.d(TAG, "====== EVENT: TRANSACTION SAVED ======")
+                Log.d(TAG, "Transaction ID: $transactionId")
+                sendEvent("onTransactionSaved", mapOf(
+                    "success" to true,
+                    "transactionId" to transactionId,
+                    "transaction" to transaction.toMap()
                 ))
+                Log.d(TAG, "✓ Event sent to JavaScript")
             }
+
+            override fun onError(error: String, type: String, transaction: TransactionData?) {
+                Log.e(TAG, "====== EVENT: ERROR ======")
+                Log.e(TAG, "Error: $error")
+                Log.e(TAG, "Type: $type")
+                val eventData = mutableMapOf<String, Any?>(
+                    "error" to error,
+                    "type" to type
+                )
+                transaction?.let { eventData["transaction"] = it.toMap() }
+                sendEvent("onError", eventData)
+            }
+        }
+        
+        Log.d(TAG, "✓ ServiceEventListener set up successfully")
+    }
+
+    /**
+     * Auto-starts the service if permissions are already granted.
+     * This ensures the service runs immediately when the app loads.
+     */
+    private fun autoStartServiceIfPermitted() {
+        Log.d(TAG, "Checking if auto-start is possible...")
+        Log.d(TAG, "SMS permission granted: ${hasSmsPermission()}")
+        
+        if (hasRequiredPermissions()) {
+            try {
+                Log.d(TAG, "Permissions OK - auto-starting service...")
+                startService()
+                Log.d(TAG, "✓ Service auto-started successfully")
+            } catch (e: Exception) {
+                Log.e(TAG, "✗ Failed to auto-start service: ${e.message}")
+                e.printStackTrace()
+            }
+        } else {
+            Log.d(TAG, "Permissions not granted - service will start after permission grant")
         }
     }
 
+    /**
+     * Helper to start the service.
+     */
+    private fun startService() {
+        Log.d(TAG, "startService() called")
+        val serviceIntent = Intent(context, SmsListenerService::class.java)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            Log.d(TAG, "Using startForegroundService (Android O+)")
+            context.startForegroundService(serviceIntent)
+        } else {
+            Log.d(TAG, "Using startService (pre-Android O)")
+            context.startService(serviceIntent)
+        }
+        Log.d(TAG, "Service intent sent")
+    }
+
     private fun hasRequiredPermissions(): Boolean {
-        return hasSmsPermission()
+        val result = hasSmsPermission()
+        Log.d(TAG, "hasRequiredPermissions() = $result")
+        return result
     }
 
     private fun hasSmsPermission(): Boolean {
-        return ContextCompat.checkSelfPermission(
+        val receiveSms = ContextCompat.checkSelfPermission(
             context,
             Manifest.permission.RECEIVE_SMS
-        ) == PackageManager.PERMISSION_GRANTED &&
-        ContextCompat.checkSelfPermission(
+        ) == PackageManager.PERMISSION_GRANTED
+        
+        val readSms = ContextCompat.checkSelfPermission(
             context,
             Manifest.permission.READ_SMS
         ) == PackageManager.PERMISSION_GRANTED
+        
+        Log.d(TAG, "hasSmsPermission: RECEIVE_SMS=$receiveSms, READ_SMS=$readSms")
+        return receiveSms && readSms
     }
 }

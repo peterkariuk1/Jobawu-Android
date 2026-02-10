@@ -18,12 +18,46 @@ class FirestoreRepository(private val context: Context) {
         private const val COLLECTION_RECONCILIATION = "reconciliation"
     }
 
-    private val firestore: FirebaseFirestore by lazy {
-        // Ensure Firebase is initialized
-        if (FirebaseApp.getApps(context).isEmpty()) {
-            FirebaseApp.initializeApp(context)
+    private var firestore: FirebaseFirestore? = null
+    private var firebaseInitialized = false
+
+    init {
+        initializeFirebase()
+    }
+
+    private fun initializeFirebase() {
+        try {
+            Log.d(TAG, "====== INITIALIZING FIREBASE ======")
+            Log.d(TAG, "Existing Firebase apps: ${FirebaseApp.getApps(context).size}")
+            
+            if (FirebaseApp.getApps(context).isEmpty()) {
+                Log.d(TAG, "No Firebase apps found, attempting to initialize...")
+                FirebaseApp.initializeApp(context)
+                Log.d(TAG, "FirebaseApp.initializeApp() completed")
+            } else {
+                Log.d(TAG, "Firebase already initialized")
+            }
+            
+            firestore = FirebaseFirestore.getInstance()
+            firebaseInitialized = true
+            Log.d(TAG, "✓ Firebase Firestore initialized successfully")
+            Log.d(TAG, "====================================")
+        } catch (e: Exception) {
+            Log.e(TAG, "====== FIREBASE INIT FAILED ======")
+            Log.e(TAG, "Error: ${e.message}")
+            Log.e(TAG, "This usually means google-services.json is missing!")
+            Log.e(TAG, "Transactions will be saved locally only.")
+            e.printStackTrace()
+            Log.e(TAG, "===================================")
+            firebaseInitialized = false
         }
-        FirebaseFirestore.getInstance()
+    }
+
+    /**
+     * Checks if Firestore is available.
+     */
+    fun isAvailable(): Boolean {
+        return firebaseInitialized && firestore != null
     }
 
     /**
@@ -31,18 +65,24 @@ class FirestoreRepository(private val context: Context) {
      * Uses the transaction ID as the document ID for deduplication.
      */
     suspend fun saveTransaction(transaction: TransactionData): Result<String> {
+        if (!isAvailable()) {
+            Log.w(TAG, "Firestore not available - transaction saved locally only")
+            return Result.failure(Exception("Firestore not configured - missing google-services.json"))
+        }
+        
         return try {
-            Log.d(TAG, "Saving transaction: ${transaction.id}")
+            Log.d(TAG, "Saving transaction to Firestore: ${transaction.id}")
             
-            firestore.collection(COLLECTION_TRANSACTIONS)
+            firestore!!.collection(COLLECTION_TRANSACTIONS)
                 .document(transaction.id)
                 .set(transaction.toMap(), SetOptions.merge())
                 .await()
             
-            Log.d(TAG, "Transaction saved successfully: ${transaction.id}")
+            Log.d(TAG, "✓ Transaction saved to Firestore: ${transaction.id}")
             Result.success(transaction.id)
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to save transaction: ${e.message}")
+            Log.e(TAG, "✗ Failed to save transaction: ${e.message}")
+            e.printStackTrace()
             Result.failure(e)
         }
     }
@@ -55,18 +95,28 @@ class FirestoreRepository(private val context: Context) {
         onSuccess: (String) -> Unit,
         onError: (String) -> Unit
     ) {
-        Log.d(TAG, "Saving transaction async: ${transaction.id}")
+        Log.d(TAG, "saveTransactionAsync called for: ${transaction.id}")
         
-        firestore.collection(COLLECTION_TRANSACTIONS)
+        if (!isAvailable()) {
+            val error = "Firestore not configured - missing google-services.json. Transaction saved locally only."
+            Log.w(TAG, error)
+            onError(error)
+            return
+        }
+        
+        Log.d(TAG, "Attempting to save to Firestore collection: $COLLECTION_TRANSACTIONS")
+        
+        firestore!!.collection(COLLECTION_TRANSACTIONS)
             .document(transaction.id)
             .set(transaction.toMap(), SetOptions.merge())
             .addOnSuccessListener {
-                Log.d(TAG, "Transaction saved successfully: ${transaction.id}")
+                Log.d(TAG, "✓ Transaction saved to Firestore: ${transaction.id}")
                 onSuccess(transaction.id)
             }
             .addOnFailureListener { e ->
-                Log.e(TAG, "Failed to save transaction: ${e.message}")
-                onError(e.message ?: "Unknown error")
+                Log.e(TAG, "✗ Failed to save transaction to Firestore: ${e.message}")
+                e.printStackTrace()
+                onError(e.message ?: "Unknown Firestore error")
             }
     }
 
@@ -74,8 +124,12 @@ class FirestoreRepository(private val context: Context) {
      * Retrieves a transaction by ID.
      */
     suspend fun getTransaction(transactionId: String): Result<TransactionData?> {
+        if (!isAvailable()) {
+            return Result.failure(Exception("Firestore not configured"))
+        }
+        
         return try {
-            val document = firestore.collection(COLLECTION_TRANSACTIONS)
+            val document = firestore!!.collection(COLLECTION_TRANSACTIONS)
                 .document(transactionId)
                 .get()
                 .await()
@@ -100,8 +154,12 @@ class FirestoreRepository(private val context: Context) {
      * Marks a transaction as reconciled.
      */
     suspend fun markAsReconciled(transactionId: String): Result<Boolean> {
+        if (!isAvailable()) {
+            return Result.failure(Exception("Firestore not configured"))
+        }
+        
         return try {
-            firestore.collection(COLLECTION_TRANSACTIONS)
+            firestore!!.collection(COLLECTION_TRANSACTIONS)
                 .document(transactionId)
                 .update(
                     mapOf(
@@ -123,8 +181,13 @@ class FirestoreRepository(private val context: Context) {
      * Gets all unreconciled transactions.
      */
     suspend fun getUnreconciledTransactions(): Result<List<TransactionData>> {
+        if (!isAvailable()) {
+            Log.w(TAG, "Firestore not available - returning empty list")
+            return Result.success(emptyList())
+        }
+        
         return try {
-            val querySnapshot = firestore.collection(COLLECTION_TRANSACTIONS)
+            val querySnapshot = firestore!!.collection(COLLECTION_TRANSACTIONS)
                 .whereEqualTo("reconciled", false)
                 .get()
                 .await()
@@ -147,8 +210,12 @@ class FirestoreRepository(private val context: Context) {
         startDate: String,
         endDate: String
     ): Result<List<TransactionData>> {
+        if (!isAvailable()) {
+            return Result.success(emptyList())
+        }
+        
         return try {
-            val querySnapshot = firestore.collection(COLLECTION_TRANSACTIONS)
+            val querySnapshot = firestore!!.collection(COLLECTION_TRANSACTIONS)
                 .whereGreaterThanOrEqualTo("transactionDate", startDate)
                 .whereLessThanOrEqualTo("transactionDate", endDate)
                 .get()
@@ -169,8 +236,12 @@ class FirestoreRepository(private val context: Context) {
      * Checks if a transaction already exists (for deduplication).
      */
     suspend fun transactionExists(mpesaReference: String): Boolean {
+        if (!isAvailable()) {
+            return false
+        }
+        
         return try {
-            val querySnapshot = firestore.collection(COLLECTION_TRANSACTIONS)
+            val querySnapshot = firestore!!.collection(COLLECTION_TRANSACTIONS)
                 .whereEqualTo("mpesaReference", mpesaReference)
                 .limit(1)
                 .get()
