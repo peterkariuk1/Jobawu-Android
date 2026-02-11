@@ -114,20 +114,46 @@ class EquitySmsModule : Module() {
 
         // Check required permissions
         Function("checkPermissions") {
+            val receiveSms = ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.RECEIVE_SMS
+            ) == PackageManager.PERMISSION_GRANTED
+            
+            val readSms = ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.READ_SMS
+            ) == PackageManager.PERMISSION_GRANTED
+            
+            val postNotifications = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                ContextCompat.checkSelfPermission(
+                    context,
+                    Manifest.permission.POST_NOTIFICATIONS
+                ) == PackageManager.PERMISSION_GRANTED
+            } else {
+                true // Not required on older Android versions
+            }
+            
             mapOf(
-                "sms" to hasSmsPermission(),
+                "sms" to receiveSms,
+                "readSms" to readSms,
+                "postNotifications" to postNotifications,
                 "bootCompleted" to true, // Always granted if declared in manifest
                 "foregroundService" to true, // Always granted if declared in manifest
-                "allGranted" to hasRequiredPermissions()
+                "allGranted" to (receiveSms && readSms && postNotifications)
             )
         }
 
         // Get required permissions list
         Function("getRequiredPermissions") {
-            listOf(
+            val permissions = mutableListOf(
                 Manifest.permission.RECEIVE_SMS,
                 Manifest.permission.READ_SMS
             )
+            // Android 13+ requires POST_NOTIFICATIONS for foreground service notifications
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                permissions.add(Manifest.permission.POST_NOTIFICATIONS)
+            }
+            permissions
         }
 
         // Manually save a transaction (for testing)
@@ -414,7 +440,7 @@ class EquitySmsModule : Module() {
     }
 
     private fun hasRequiredPermissions(): Boolean {
-        val result = hasSmsPermission()
+        val result = hasSmsPermission() && hasNotificationPermission()
         Log.d(TAG, "hasRequiredPermissions() = $result")
         return result
     }
@@ -432,5 +458,20 @@ class EquitySmsModule : Module() {
         
         Log.d(TAG, "hasSmsPermission: RECEIVE_SMS=$receiveSms, READ_SMS=$readSms")
         return receiveSms && readSms
+    }
+    
+    private fun hasNotificationPermission(): Boolean {
+        // Android 13+ requires POST_NOTIFICATIONS for foreground service notifications
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val granted = ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.POST_NOTIFICATIONS
+            ) == PackageManager.PERMISSION_GRANTED
+            Log.d(TAG, "hasNotificationPermission: POST_NOTIFICATIONS=$granted (Android 13+)")
+            return granted
+        }
+        // Not required on older versions
+        Log.d(TAG, "hasNotificationPermission: true (pre-Android 13)")
+        return true
     }
 }

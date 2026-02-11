@@ -17,6 +17,7 @@ import { useEquitySms } from '../../hooks/use-equity-sms';
  */
 export default function ReconciliationScreen() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [debugExpanded, setDebugExpanded] = useState(true);
   const {
     isListening,
     permissions,
@@ -225,6 +226,47 @@ export default function ReconciliationScreen() {
       </View>
 
       <View className="flex-1 bg-gray-50">
+        
+        {/* DEBUG PANEL - Tap to collapse */}
+        <TouchableOpacity 
+          onPress={() => setDebugExpanded(!debugExpanded)}
+          className="bg-blue-900 p-3 mb-2"
+        >
+          <Text className="text-white font-bold">
+            🐛 DEBUG INFO {debugExpanded ? '▼' : '▶'}
+          </Text>
+        </TouchableOpacity>
+        
+        {debugExpanded && (
+          <View className="bg-blue-50 p-3 mb-2 border border-blue-200">
+            <Text className="text-blue-900 font-bold mb-2">Service Status:</Text>
+            <Text className="text-sm mb-1">• Listening: {isListening ? '✅ YES' : '❌ NO'}</Text>
+            <Text className="text-sm mb-1">• SMS Permission: {permissions?.sms ? '✅' : '❌'}</Text>
+            <Text className="text-sm mb-1">• SMS Read: {permissions?.readSms ? '✅' : '❌'}</Text>
+            <Text className="text-sm mb-1">• Post Notifications: {permissions?.postNotifications ? '✅' : '❌'}</Text>
+            <Text className="text-sm mb-1">• Boot Permission: {permissions?.bootComplete ? '✅' : '❌'}</Text>
+            
+            <Text className="text-blue-900 font-bold mt-3 mb-2">Transactions:</Text>
+            <Text className="text-sm mb-1">• Local Stored: {transactions.length}</Text>
+            <Text className="text-sm mb-1">• Pending Sync: {pendingTransactions.length}</Text>
+            
+            {lastError && (
+              <>
+                <Text className="text-red-600 font-bold mt-3 mb-2">Last Error:</Text>
+                <Text className="text-sm text-red-600">{lastError}</Text>
+              </>
+            )}
+            
+            <Text className="text-blue-900 font-bold mt-3 mb-2">Instructions:</Text>
+            <Text className="text-xs text-blue-800">
+              1. Make sure all permissions are ✅{'\n'}
+              2. Service should show "Listening: YES"{'\n'}
+              3. Send a real SMS from Equity Bank to your phone{'\n'}
+              4. Watch this screen - new transactions should appear automatically{'\n'}
+              5. Use Test buttons below to verify parsing works
+            </Text>
+          </View>
+        )}
         
         {/* Permission Status */}
         <View className="flex-row items-center mb-2">

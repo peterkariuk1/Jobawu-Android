@@ -28,6 +28,8 @@ export interface TransactionData {
  */
 export interface PermissionStatus {
   sms: boolean;
+  readSms: boolean;
+  postNotifications: boolean;
   bootCompleted: boolean;
   foregroundService: boolean;
   allGranted: boolean;

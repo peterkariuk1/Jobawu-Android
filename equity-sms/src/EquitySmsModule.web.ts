@@ -5,7 +5,14 @@ import { EquitySmsModuleEvents, PermissionStatus, ServiceResult, TransactionData
 class EquitySmsModule extends NativeModule<EquitySmsModuleEvents> {
   // Web stub - SMS functionality is Android-only
   checkPermissions(): PermissionStatus {
-    return { sms: false, bootCompleted: false, foregroundService: false, allGranted: false };
+    return { 
+      sms: false, 
+      readSms: false, 
+      postNotifications: false, 
+      bootCompleted: false, 
+      foregroundService: false, 
+      allGranted: false 
+    };
   }
 
   getRequiredPermissions(): string[] {
