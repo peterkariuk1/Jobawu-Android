@@ -1,11 +1,11 @@
 /**
  * Receipts Page - Placeholder
  */
-import { Sidebar } from '@/components/sidebar';
-import { colors, spacing, typography } from '@/constants/design';
 import React, { useState } from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Sidebar } from '../../components/sidebar';
+import { colors, spacing, typography } from '../../constants/design';
 
 export default function Receipts() {
   const [sidebarOpen, setSidebarOpen] = useState(false);

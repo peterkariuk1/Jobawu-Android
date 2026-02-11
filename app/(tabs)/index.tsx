@@ -2,9 +2,6 @@
  * Dashboard - Main home screen
  * Displays recent payments, totals, and key metrics
  */
-import { Sidebar } from '@/components/sidebar';
-import { borderRadius, colors, shadows, spacing, typography } from '@/constants/design';
-import { db } from '@/firebaseConfig';
 import { collection, getDocs, limit, orderBy, query, Timestamp, where } from 'firebase/firestore';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
@@ -17,6 +14,9 @@ import {
     View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Sidebar } from '../../components/sidebar';
+import { borderRadius, colors, shadows, spacing, typography } from '../../constants/design';
+import { db } from '../../firebaseConfig';
 
 interface Payment {
   id: string;

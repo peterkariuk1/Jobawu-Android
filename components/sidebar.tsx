@@ -2,7 +2,6 @@
  * Sidebar Navigation Component
  * Professional slide-out drawer with clean navigation
  */
-import { colors, shadows, spacing, typography } from '@/constants/design';
 import { usePathname, useRouter } from 'expo-router';
 import React from 'react';
 import {
@@ -13,6 +12,7 @@ import {
     TouchableOpacity,
     View,
 } from 'react-native';
+import { colors, shadows, spacing, typography } from '../constants/design';
 
 interface SidebarProps {
   isOpen: boolean;

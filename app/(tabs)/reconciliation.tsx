@@ -1,9 +1,9 @@
-import { Sidebar } from '@/components/sidebar';
-import { colors, spacing, typography } from '@/constants/design';
 import type { TransactionData } from 'equity-sms';
 import React, { useEffect, useState } from 'react';
 import { Alert, FlatList, Platform, RefreshControl, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Sidebar } from '../../components/sidebar';
+import { colors, spacing, typography } from '../../constants/design';
 import { useEquitySms } from '../../hooks/use-equity-sms';
 
 /**

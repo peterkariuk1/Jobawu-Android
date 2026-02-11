@@ -2,9 +2,6 @@
  * Register Plot Page
  * Form to register a new plot with house numbers and their details
  */
-import { Sidebar } from '@/components/sidebar';
-import { borderRadius, colors, shadows, spacing, typography } from '@/constants/design';
-import { db } from '@/firebaseConfig';
 import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
 import React, { useState } from 'react';
 import {
@@ -20,6 +17,9 @@ import {
     View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Sidebar } from '../../components/sidebar';
+import { borderRadius, colors, shadows, spacing, typography } from '../../constants/design';
+import { db } from '../../firebaseConfig';
 
 interface HouseUnit {
   id: string;

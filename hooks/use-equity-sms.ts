@@ -1,8 +1,3 @@
-import {
-    getUnreconciledTransactions as fetchUnreconciled,
-    markTransactionReconciled,
-    saveTransactionToFirestore,
-} from '@/services/firestore-service';
 import EquitySmsModule, {
     ErrorEvent,
     PermissionStatus,
@@ -13,6 +8,11 @@ import EquitySmsModule, {
 } from 'equity-sms';
 import { useCallback, useEffect, useState } from 'react';
 import { Alert, PermissionsAndroid, Platform } from 'react-native';
+import {
+    getUnreconciledTransactions as fetchUnreconciled,
+    markTransactionReconciled,
+    saveTransactionToFirestore,
+} from '../services/firestore-service';
 
 interface UseEquitySmsReturn {
   /** Whether the SMS listener service is currently running */

@@ -3,7 +3,6 @@
  * All Firestore writes happen on the JS side using the Firebase JS SDK,
  * bypassing the native google-services.json dependency.
  */
-import { db } from '@/firebaseConfig';
 import {
     collection,
     doc,
@@ -16,6 +15,7 @@ import {
     updateDoc,
     where
 } from 'firebase/firestore';
+import { db } from '../firebaseConfig';
 
 export interface TransactionRecord {
   id: string;
