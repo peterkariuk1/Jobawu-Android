@@ -1,3 +1,8 @@
+import {
+    getUnreconciledTransactions as fetchUnreconciled,
+    markTransactionReconciled,
+    saveTransactionToFirestore,
+} from '@/services/firestore-service';
 import EquitySmsModule, {
     ErrorEvent,
     PermissionStatus,
@@ -42,8 +47,14 @@ interface UseEquitySmsReturn {
 
 /**
  * Hook for managing Equity Bank SMS reconciliation.
- * The SMS listener auto-starts when permissions are granted.
- * Provides offline-first transaction access via local storage.
+ *
+ * KEY ARCHITECTURE:
+ * - SMS reception + parsing: handled NATIVELY (equity-sms module)
+ * - Firestore saves: handled on JS SIDE (firebase JS SDK)
+ *
+ * This bypasses the native google-services.json dependency entirely.
+ * The native side only does SMS BroadcastReceiver + parser.
+ * All Firestore operations go through firebaseConfig.ts → JS SDK.
  */
 export function useEquitySms(): UseEquitySmsReturn {
   const [isListening, setIsListening] = useState(false);
@@ -74,20 +85,64 @@ export function useEquitySms(): UseEquitySmsReturn {
     }
   }, [refreshLocalTransactions]);
 
+  // Sync any pending local transactions to Firestore on mount
+  // Handles SMS received while app was closed (saved locally by native receiver)
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+
+    const syncPendingToFirestore = async () => {
+      try {
+        const pending = EquitySmsModule.getPendingTransactions();
+        if (!pending || pending.length === 0) return;
+
+        console.log(`[EquitySms] Found ${pending.length} pending local transactions — syncing to Firestore...`);
+        for (const txn of pending) {
+          const result = await saveTransactionToFirestore(txn);
+          if (result.success) {
+            console.log(`[EquitySms] ✓ Synced pending: ${result.id}`);
+          } else {
+            console.error(`[EquitySms] ✗ Failed to sync: ${result.error}`);
+          }
+        }
+        // Refresh state after sync
+        refreshLocalTransactions();
+      } catch (error) {
+        console.error('[EquitySms] Sync pending to Firestore failed:', error);
+      }
+    };
+
+    // Small delay to let native module initialize
+    const timer = setTimeout(syncPendingToFirestore, 2000);
+    return () => clearTimeout(timer);
+  }, []);
+
   // Set up event listeners
   useEffect(() => {
     if (Platform.OS !== 'android') return;
 
     const subscriptions = [
-      EquitySmsModule.addListener('onSmsReceived', (event: SmsReceivedEvent) => {
-        console.log('[EquitySms] SMS received:', event.transaction);
-        // Add to transactions list and refresh from local storage
+      // When native side receives+parses an SMS → save to Firestore from JS
+      EquitySmsModule.addListener('onSmsReceived', async (event: SmsReceivedEvent) => {
+        console.log('[EquitySms] SMS received from native:', event.transaction.id);
+        console.log('[EquitySms] Amount:', event.transaction.amount);
+
+        // Add to local state immediately
         setTransactions((prev) => {
-          // Avoid duplicates
           const exists = prev.some(t => t.id === event.transaction.id);
           if (exists) return prev;
           return [event.transaction, ...prev];
         });
+
+        // Save to Firestore via JS SDK (this works!)
+        console.log('[EquitySms] Saving to Firestore via JS SDK...');
+        const result = await saveTransactionToFirestore(event.transaction);
+        if (result.success) {
+          console.log('[EquitySms] ✓ Saved to Firestore:', result.id);
+        } else {
+          console.error('[EquitySms] ✗ Firestore save failed:', result.error);
+          setLastError(`Firestore save failed: ${result.error}`);
+        }
+
         // Refresh pending count
         try {
           setPendingTransactions(EquitySmsModule.getPendingTransactions());
@@ -95,18 +150,23 @@ export function useEquitySms(): UseEquitySmsReturn {
           console.error('[EquitySms] Failed to refresh pending:', e);
         }
       }),
+      // Native Firestore save event (may or may not fire — we don't depend on it)
       EquitySmsModule.addListener('onTransactionSaved', (event: TransactionSavedEvent) => {
-        console.log('[EquitySms] Transaction saved to Firestore:', event.transactionId);
-        // Refresh pending count after successful sync
+        console.log('[EquitySms] Native Firestore also saved:', event.transactionId);
         try {
           setPendingTransactions(EquitySmsModule.getPendingTransactions());
         } catch (e) {
-          console.error('[EquitySms] Failed to refresh pending:', e);
+          // non-critical
         }
       }),
       EquitySmsModule.addListener('onError', (event: ErrorEvent) => {
-        console.error('[EquitySms] Error:', event.error);
-        setLastError(event.error);
+        // Only log native firestore errors, don't show to user since JS handles saves
+        if (event.error?.includes?.('Firestore') || event.error?.includes?.('firestore')) {
+          console.log('[EquitySms] Native Firestore error (handled by JS):', event.error);
+        } else {
+          console.error('[EquitySms] Error:', event.error);
+          setLastError(event.error);
+        }
       }),
       EquitySmsModule.addListener('onServiceStatusChanged', (event: ServiceStatusEvent) => {
         console.log('[EquitySms] Service status:', event.status);
@@ -209,24 +269,34 @@ export function useEquitySms(): UseEquitySmsReturn {
     }
   }, []);
 
+  // Use JS-side Firestore for unreconciled transactions
   const getUnreconciledTransactions = useCallback(async (): Promise<TransactionData[]> => {
     if (Platform.OS !== 'android') return [];
-
     try {
-      return await EquitySmsModule.getUnreconciledTransactions();
+      return (await fetchUnreconciled()) as TransactionData[];
     } catch (error) {
-      console.error('[EquitySms] Failed to get unreconciled transactions:', error);
-      setLastError(error instanceof Error ? error.message : 'Failed to fetch transactions');
+      console.error('[EquitySms] Failed to get unreconciled:', error);
       return [];
     }
   }, []);
 
+  // Use JS-side Firestore for reconciliation
   const markAsReconciled = useCallback(async (transactionId: string): Promise<boolean> => {
     if (Platform.OS !== 'android') return false;
 
     try {
-      const result = await EquitySmsModule.markAsReconciled(transactionId);
-      return result.success;
+      // Update Firestore via JS SDK
+      const success = await markTransactionReconciled(transactionId);
+
+      // Also update local native storage
+      try {
+        await EquitySmsModule.markAsReconciled(transactionId);
+      } catch (e) {
+        // Non-critical — native side may fail, JS side is primary
+        console.log('[EquitySms] Native reconcile update (non-critical):', e);
+      }
+
+      return success;
     } catch (error) {
       console.error('[EquitySms] Failed to mark as reconciled:', error);
       setLastError(error instanceof Error ? error.message : 'Failed to update transaction');
@@ -252,6 +322,7 @@ export function useEquitySms(): UseEquitySmsReturn {
     }
   }, []);
 
+  // Parse + Save: parse natively, save via JS Firestore
   const testParseAndSave = useCallback(async (smsBody: string, sender: string): Promise<TransactionData | null> => {
     if (Platform.OS !== 'android') {
       console.log('[EquitySms] testParseAndSave not available on this platform');
@@ -259,23 +330,40 @@ export function useEquitySms(): UseEquitySmsReturn {
     }
 
     try {
-      console.log('[EquitySms] Testing parse AND save to Firebase...');
+      console.log('[EquitySms] === TEST PARSE AND SAVE (JS Firestore) ===');
       console.log('[EquitySms] Sender:', sender);
       console.log('[EquitySms] SMS length:', smsBody.length);
-      
-      const result = await EquitySmsModule.testParseAndSave(smsBody, sender);
-      
-      if (result.success && result.transaction) {
-        console.log('[EquitySms] ✓ Test parse and save successful!');
-        console.log('[EquitySms] Transaction ID:', result.transaction.id);
-        console.log('[EquitySms] Amount:', result.transaction.amount);
-        
-        // Refresh local transactions to include the new one
-        refreshLocalTransactions();
-        
-        return result.transaction;
+
+      // Step 1: Parse natively (this works)
+      const parsed = EquitySmsModule.parseSms(smsBody, sender);
+
+      if (!parsed) {
+        console.error('[EquitySms] ✗ Parse failed');
+        return null;
+      }
+
+      console.log('[EquitySms] ✓ Parsed:', parsed.id);
+      console.log('[EquitySms] Amount:', parsed.amount, parsed.currency);
+
+      // Step 2: Save to Firestore via JS SDK (this works!)
+      console.log('[EquitySms] Saving to Firestore via JS SDK...');
+      const result = await saveTransactionToFirestore(parsed);
+
+      if (result.success) {
+        console.log('[EquitySms] ✓ Saved to Firestore!');
+        console.log('[EquitySms] ID:', result.id);
+
+        // Add to local state
+        setTransactions((prev) => {
+          const exists = prev.some(t => t.id === parsed.id);
+          if (exists) return prev;
+          return [parsed, ...prev];
+        });
+
+        return parsed;
       } else {
-        console.log('[EquitySms] ✗ Test parse and save failed');
+        console.error('[EquitySms] ✗ Firestore save failed:', result.error);
+        setLastError(`Save failed: ${result.error}`);
         return null;
       }
     } catch (error) {
@@ -283,7 +371,7 @@ export function useEquitySms(): UseEquitySmsReturn {
       setLastError(error instanceof Error ? error.message : 'Test parse and save failed');
       return null;
     }
-  }, [refreshLocalTransactions]);
+  }, []);
 
   const getLocalTransactions = useCallback((): TransactionData[] => {
     if (Platform.OS !== 'android') return [];

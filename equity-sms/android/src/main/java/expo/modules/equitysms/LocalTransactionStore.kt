@@ -37,30 +37,33 @@ class LocalTransactionStore(context: Context) {
      * Returns false if transaction already exists (duplicate detection).
      */
     fun savePendingTransaction(transaction: TransactionData): Boolean {
-        Log.d(TAG, "savePendingTransaction: ${transaction.id}")
+        Log.w(TAG, "▓▓▓ savePendingTransaction called ▓▓▓")
+        Log.w(TAG, ">>> ID: ${transaction.id}")
+        Log.w(TAG, ">>> MPESA Ref: ${transaction.mpesaReference}")
         
         return try {
             val pending = getPendingTransactionsInternal().toMutableList()
             val synced = getSyncedTransactionsInternal()
             
+            Log.w(TAG, ">>> Current pending: ${pending.size}, synced: ${synced.size}")
+            
             // Check for duplicates by mpesaReference in both pending and synced
             if (pending.any { it.mpesaReference == transaction.mpesaReference }) {
-                Log.d(TAG, "✗ Duplicate found in pending (mpesaRef: ${transaction.mpesaReference})")
+                Log.w(TAG, ">>> ✗ Duplicate in pending (mpesaRef: ${transaction.mpesaReference})")
                 return false
             }
             if (synced.any { it.mpesaReference == transaction.mpesaReference }) {
-                Log.d(TAG, "✗ Duplicate found in synced (mpesaRef: ${transaction.mpesaReference})")
+                Log.w(TAG, ">>> ✗ Duplicate in synced (mpesaRef: ${transaction.mpesaReference})")
                 return false
             }
             
             pending.add(transaction)
             savePendingTransactionsInternal(pending)
             
-            Log.i(TAG, "✓ Transaction saved locally: ${transaction.id}")
-            Log.d(TAG, "Pending count: ${pending.size}")
+            Log.w(TAG, ">>> ✓ Saved locally! Total pending: ${pending.size}")
             true
         } catch (e: Exception) {
-            Log.e(TAG, "✗ Failed to save transaction: ${e.message}")
+            Log.e(TAG, ">>> ✗ Failed: ${e.message}")
             e.printStackTrace()
             false
         }

@@ -1,6 +1,9 @@
+import { Sidebar } from '@/components/sidebar';
+import { colors, spacing, typography } from '@/constants/design';
 import type { TransactionData } from 'equity-sms';
-import React, { useEffect } from 'react';
-import { Alert, FlatList, Platform, RefreshControl, Text, TouchableOpacity, View } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { Alert, FlatList, Platform, RefreshControl, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useEquitySms } from '../../hooks/use-equity-sms';
 
 /**
@@ -13,6 +16,7 @@ import { useEquitySms } from '../../hooks/use-equity-sms';
  * - Transaction reconciliation workflow
  */
 export default function ReconciliationScreen() {
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const {
     isListening,
     permissions,
@@ -170,27 +174,57 @@ export default function ReconciliationScreen() {
 
   if (Platform.OS !== 'android') {
     return (
-      <View className="flex-1 items-center justify-center p-4">
-        <Text className="text-gray-500 text-center">
-          SMS reconciliation is only available on Android devices.
-        </Text>
-      </View>
+      <SafeAreaView style={headerStyles.container} edges={['top']}>
+        <View style={headerStyles.header}>
+          <TouchableOpacity
+            style={headerStyles.menuButton}
+            onPress={() => setSidebarOpen(true)}
+            activeOpacity={0.7}
+          >
+            <View style={headerStyles.menuIcon}>
+              <View style={headerStyles.menuLine} />
+              <View style={headerStyles.menuLine} />
+              <View style={headerStyles.menuLine} />
+            </View>
+          </TouchableOpacity>
+          <Text style={headerStyles.headerTitle}>Reconciliation</Text>
+          <View style={headerStyles.headerSpacer} />
+        </View>
+        <View className="flex-1 items-center justify-center p-4">
+          <Text className="text-gray-500 text-center">
+            SMS reconciliation is only available on Android devices.
+          </Text>
+        </View>
+        <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+      </SafeAreaView>
     );
   }
 
   return (
-    <View className="flex-1 bg-gray-50">
-      {/* Header Status */}
-      <View className="bg-white p-4 border-b border-gray-200">
-        <View className="flex-row justify-between items-center mb-3">
-          <Text className="text-xl font-bold text-gray-800">SMS Reconciliation</Text>
-          <View className="flex-row items-center">
-            <View className={`w-3 h-3 rounded-full ${isListening ? 'bg-green-500' : 'bg-gray-400'}`} />
-            <Text className="ml-2 text-sm text-gray-600">
-              {isListening ? 'Listening' : 'Stopped'}
-            </Text>
+    <SafeAreaView style={headerStyles.container} edges={['top']}>
+      {/* Header with Menu */}
+      <View style={headerStyles.header}>
+        <TouchableOpacity
+          style={headerStyles.menuButton}
+          onPress={() => setSidebarOpen(true)}
+          activeOpacity={0.7}
+        >
+          <View style={headerStyles.menuIcon}>
+            <View style={headerStyles.menuLine} />
+            <View style={headerStyles.menuLine} />
+            <View style={headerStyles.menuLine} />
           </View>
+        </TouchableOpacity>
+        <Text style={headerStyles.headerTitle}>Reconciliation</Text>
+        <View className="flex-row items-center">
+          <View className={`w-3 h-3 rounded-full ${isListening ? 'bg-green-500' : 'bg-gray-400'}`} />
+          <Text className="ml-2 text-sm text-gray-600">
+            {isListening ? 'Active' : 'Off'}
+          </Text>
         </View>
+      </View>
+
+      <View className="flex-1 bg-gray-50">
         
         {/* Permission Status */}
         <View className="flex-row items-center mb-2">
@@ -279,6 +313,50 @@ export default function ReconciliationScreen() {
           />
         )}
       </View>
-    </View>
+
+      {/* Sidebar */}
+      <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+    </SafeAreaView>
   );
 }
+
+const headerStyles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: colors.background.secondary,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.base,
+    paddingVertical: spacing.md,
+    backgroundColor: colors.background.primary,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.neutral[200],
+  },
+  menuButton: {
+    padding: spacing.sm,
+    marginLeft: -spacing.sm,
+  },
+  menuIcon: {
+    width: 24,
+    height: 18,
+    justifyContent: 'space-between',
+  },
+  menuLine: {
+    width: 24,
+    height: 2,
+    backgroundColor: colors.neutral[700],
+    borderRadius: 1,
+  },
+  headerTitle: {
+    fontSize: typography.fontSize.lg,
+    fontWeight: typography.fontWeight.semibold,
+    color: colors.neutral[900],
+    letterSpacing: -0.3,
+  },
+  headerSpacer: {
+    width: 40,
+  },
+});

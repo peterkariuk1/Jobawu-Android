@@ -16,7 +16,7 @@ import kotlinx.coroutines.delay
  * - Retry logic for failed operations
  * - Comprehensive logging for debugging
  */
-class FirestoreRepository(private val context: Context) {
+class FirestoreRepository(context: Context) {
 
     companion object {
         private const val TAG = "FirestoreRepository"
@@ -26,6 +26,8 @@ class FirestoreRepository(private val context: Context) {
         private const val RETRY_DELAY_MS = 1000L
     }
 
+    // Always use application context to access resources from google-services.json
+    private val appContext: Context = context.applicationContext
     private var firestore: FirebaseFirestore? = null
     private var firebaseInitialized = false
 
@@ -35,50 +37,77 @@ class FirestoreRepository(private val context: Context) {
 
     private fun initializeFirebase() {
         try {
-            Log.d(TAG, "====== INITIALIZING FIREBASE ======")
-            Log.d(TAG, "Context package: ${context.packageName}")
-            Log.d(TAG, "Existing Firebase apps: ${FirebaseApp.getApps(context).size}")
+            Log.w(TAG, "▓▓▓ INITIALIZING FIREBASE ▓▓▓")
+            Log.w(TAG, ">>> Package: ${appContext.packageName}")
+            Log.w(TAG, ">>> Context type: ${appContext.javaClass.simpleName}")
+            Log.w(TAG, ">>> Existing apps: ${FirebaseApp.getApps(appContext).size}")
             
-            if (FirebaseApp.getApps(context).isEmpty()) {
-                Log.d(TAG, "No Firebase apps found, attempting to initialize...")
-                FirebaseApp.initializeApp(context)
-                Log.d(TAG, "FirebaseApp.initializeApp() completed")
+            if (FirebaseApp.getApps(appContext).isEmpty()) {
+                Log.w(TAG, ">>> No Firebase apps found, initializing...")
+                val app = FirebaseApp.initializeApp(appContext)
+                if (app == null) {
+                    Log.e(TAG, ">>> FirebaseApp.initializeApp() returned null!")
+                    Log.e(TAG, ">>> Make sure google-services.json is in android/app/ and rebuild")
+                    firebaseInitialized = false
+                    return
+                }
+                Log.w(TAG, ">>> FirebaseApp.initializeApp() done: ${app.name}")
             } else {
-                Log.d(TAG, "Firebase already initialized, app name: ${FirebaseApp.getInstance().name}")
+                Log.w(TAG, ">>> Already initialized: ${FirebaseApp.getInstance().name}")
             }
             
             firestore = FirebaseFirestore.getInstance()
             
-            // Enable offline persistence for reliable background operation
-            val settings = FirebaseFirestoreSettings.Builder()
-                .setPersistenceEnabled(true)
-                .setCacheSizeBytes(FirebaseFirestoreSettings.CACHE_SIZE_UNLIMITED)
-                .build()
-            firestore?.firestoreSettings = settings
-            Log.d(TAG, "✓ Firestore offline persistence enabled")
+            // Try to enable offline persistence (might fail if already accessed)
+            try {
+                val settings = FirebaseFirestoreSettings.Builder()
+                    .setPersistenceEnabled(true)
+                    .setCacheSizeBytes(FirebaseFirestoreSettings.CACHE_SIZE_UNLIMITED)
+                    .build()
+                firestore?.firestoreSettings = settings
+                Log.w(TAG, ">>> Offline persistence enabled")
+            } catch (e: IllegalStateException) {
+                // Settings already configured - this is OK
+                Log.w(TAG, ">>> Firestore settings already configured (normal)")
+            }
             
             firebaseInitialized = true
-            Log.i(TAG, "====== FIREBASE INITIALIZED SUCCESSFULLY ======")
-            Log.i(TAG, "Project ID: ${FirebaseApp.getInstance().options.projectId}")
-            Log.i(TAG, "=================================================")
+            Log.w(TAG, "▓▓▓ FIREBASE READY ▓▓▓")
+            Log.w(TAG, ">>> Project: ${FirebaseApp.getInstance().options.projectId}")
         } catch (e: Exception) {
-            Log.e(TAG, "====== FIREBASE INIT FAILED ======")
-            Log.e(TAG, "Error: ${e.message}")
-            Log.e(TAG, "Exception type: ${e.javaClass.simpleName}")
-            Log.e(TAG, "This usually means google-services.json is missing or invalid!")
-            Log.e(TAG, "Transactions will be saved locally only.")
+            Log.e(TAG, "▓▓▓ FIREBASE INIT FAILED! ▓▓▓")
+            Log.e(TAG, ">>> Error: ${e.message}")
+            Log.e(TAG, ">>> Type: ${e.javaClass.simpleName}")
+            Log.e(TAG, ">>> Make sure google-services.json is in android/app/")
+            Log.e(TAG, ">>> Then rebuild: eas build --platform android")
             e.printStackTrace()
-            Log.e(TAG, "===================================")
             firebaseInitialized = false
         }
     }
+    
+    /**
+     * Retry Firebase initialization if it failed initially.
+     */
+    fun retryInitialization(): Boolean {
+        if (firebaseInitialized && firestore != null) {
+            Log.w(TAG, ">>> Firebase already initialized")
+            return true
+        }
+        Log.w(TAG, ">>> Retrying Firebase initialization...")
+        initializeFirebase()
+        return firebaseInitialized
+    }
 
     /**
-     * Checks if Firestore is available.
+     * Checks if Firestore is available. Auto-retries initialization once if needed.
      */
     fun isAvailable(): Boolean {
+        if (!firebaseInitialized || firestore == null) {
+            Log.w(TAG, ">>> isAvailable: Firebase not ready, retrying...")
+            retryInitialization()
+        }
         val available = firebaseInitialized && firestore != null
-        Log.d(TAG, "isAvailable() = $available")
+        Log.w(TAG, ">>> isAvailable() = $available (init=$firebaseInitialized, firestore=${firestore != null})")
         return available
     }
 
@@ -89,8 +118,9 @@ class FirestoreRepository(private val context: Context) {
      */
     suspend fun saveTransaction(transaction: TransactionData): Result<String> {
         if (!isAvailable()) {
-            Log.w(TAG, "Firestore not available - transaction saved locally only: ${transaction.id}")
-            return Result.failure(Exception("Firestore not configured - missing google-services.json"))
+            Log.e(TAG, "Firestore not available - transaction saved locally only: ${transaction.id}")
+            Log.e(TAG, ">>> firebaseInitialized=$firebaseInitialized, firestore=${firestore != null}")
+            return Result.failure(Exception("Firestore not initialized. Rebuild app with: eas build --platform android"))
         }
         
         var lastException: Exception? = null
@@ -141,38 +171,36 @@ class FirestoreRepository(private val context: Context) {
         onSuccess: (String) -> Unit,
         onError: (String) -> Unit
     ) {
-        Log.d(TAG, "====== ASYNC SAVE INITIATED ======")
-        Log.d(TAG, "Transaction ID: ${transaction.id}")
-        Log.d(TAG, "Amount: ${transaction.amount} ${transaction.currency}")
-        Log.d(TAG, "MPESA Ref: ${transaction.mpesaReference}")
+        Log.w(TAG, "▓▓▓ ASYNC SAVE INITIATED ▓▓▓")
+        Log.w(TAG, ">>> ID: ${transaction.id}")
+        Log.w(TAG, ">>> Amount: ${transaction.amount} ${transaction.currency}")
+        Log.w(TAG, ">>> MPESA Ref: ${transaction.mpesaReference}")
+        Log.w(TAG, ">>> isAvailable: ${isAvailable()}")
         
         if (!isAvailable()) {
-            val error = "Firestore not configured - missing google-services.json. Transaction saved locally only."
-            Log.w(TAG, error)
+            val error = "Firestore not initialized. Rebuild app: eas build --platform android"
+            Log.e(TAG, ">>> $error")
             onError(error)
             return
         }
         
-        Log.d(TAG, "Saving to collection: $COLLECTION_TRANSACTIONS")
-        Log.d(TAG, "Document ID: ${transaction.id}")
+        Log.w(TAG, ">>> Saving to: $COLLECTION_TRANSACTIONS/${transaction.id}")
         
         firestore!!.collection(COLLECTION_TRANSACTIONS)
             .document(transaction.id)
             .set(transaction.toMap(), SetOptions.merge())
             .addOnSuccessListener {
-                Log.i(TAG, "====== ASYNC SAVE SUCCESS ======")
-                Log.i(TAG, "Transaction saved: ${transaction.id}")
-                Log.i(TAG, "Amount: ${transaction.amount} ${transaction.currency}")
-                Log.i(TAG, "=================================")
+                Log.w(TAG, "▓▓▓ ASYNC SAVE SUCCESS ▓▓▓")
+                Log.w(TAG, ">>> ID: ${transaction.id}")
+                Log.w(TAG, ">>> Amount: ${transaction.amount} ${transaction.currency}")
                 onSuccess(transaction.id)
             }
             .addOnFailureListener { e ->
-                Log.e(TAG, "====== ASYNC SAVE FAILED ======")
-                Log.e(TAG, "Transaction: ${transaction.id}")
-                Log.e(TAG, "Error: ${e.message}")
-                Log.e(TAG, "Exception type: ${e.javaClass.simpleName}")
+                Log.e(TAG, "▓▓▓ ASYNC SAVE FAILED ▓▓▓")
+                Log.e(TAG, ">>> ID: ${transaction.id}")
+                Log.e(TAG, ">>> Error: ${e.message}")
+                Log.e(TAG, ">>> Type: ${e.javaClass.simpleName}")
                 e.printStackTrace()
-                Log.e(TAG, "================================")
                 onError(e.message ?: "Unknown Firestore error")
             }
     }

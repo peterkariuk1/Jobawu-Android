@@ -46,13 +46,12 @@ object SmsParser {
      * @return TransactionData if parsing succeeds, null otherwise
      */
     fun parseEquityBankSms(smsBody: String, smsSender: String): TransactionData? {
-        Log.d(TAG, "╔═══════════════════════════════════════════╗")
-        Log.d(TAG, "║     SMS PARSING STARTED                   ║")
-        Log.d(TAG, "╚═══════════════════════════════════════════╝")
-        Log.d(TAG, "SMS Sender: $smsSender")
-        Log.d(TAG, "SMS Length: ${smsBody.length} chars")
-        Log.d(TAG, "SMS Body:")
-        Log.d(TAG, smsBody)
+        Log.w(TAG, "▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓")
+        Log.w(TAG, "▓▓▓  SMS PARSER CALLED                     ▓▓▓")
+        Log.w(TAG, "▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓")
+        Log.w(TAG, ">>> Sender: $smsSender")
+        Log.w(TAG, ">>> Length: ${smsBody.length} chars")
+        Log.w(TAG, ">>> Body: $smsBody")
 
         // Normalize the SMS body - remove extra whitespace and newlines
         val normalizedBody = smsBody
@@ -61,9 +60,7 @@ object SmsParser {
             .replace(Regex("\\s+"), " ")
             .trim()
         
-        Log.d(TAG, "────────────────────────────────────────────")
-        Log.d(TAG, "Normalized: $normalizedBody")
-        Log.d(TAG, "────────────────────────────────────────────")
+        Log.w(TAG, ">>> Normalized: $normalizedBody")
 
         // Try patterns in order of strictness
         val patterns = listOf(
@@ -73,34 +70,27 @@ object SmsParser {
         )
 
         for ((patternName, pattern) in patterns) {
-            Log.d(TAG, "Trying $patternName pattern...")
+            Log.w(TAG, ">>> Trying $patternName pattern...")
             val matcher = pattern.matcher(normalizedBody)
             
             if (matcher.find()) {
-                Log.i(TAG, "✓ $patternName pattern MATCHED!")
+                Log.w(TAG, ">>> ✓ $patternName pattern MATCHED!")
                 return try {
                     extractTransactionData(matcher, smsBody, smsSender, patternName)
                 } catch (e: Exception) {
-                    Log.e(TAG, "Error extracting with $patternName: ${e.message}")
+                    Log.e(TAG, ">>> ✗ Error extracting with $patternName: ${e.message}")
                     e.printStackTrace()
                     null
                 }
             } else {
-                Log.d(TAG, "✗ $patternName pattern did not match")
+                Log.w(TAG, ">>> ✗ $patternName pattern did not match")
             }
         }
 
-        Log.w(TAG, "════════════════════════════════════════════")
-        Log.w(TAG, "ALL PATTERNS FAILED - Message format not recognized")
-        Log.w(TAG, "")
-        Log.w(TAG, "Expected format:")
-        Log.w(TAG, "Confirmed KES. <amount> to <name> A/C Ref.Number <ref>")
-        Log.w(TAG, "Via <method> Ref <mpesaref> by <sender> Phone <phone>")
-        Log.w(TAG, "on <DD-MM-YYYY> at <HH:MM>.Thank you.")
-        Log.w(TAG, "")
-        Log.w(TAG, "Received message:")
-        Log.w(TAG, normalizedBody)
-        Log.w(TAG, "════════════════════════════════════════════")
+        Log.e(TAG, "▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓")
+        Log.e(TAG, "▓▓▓  ALL PATTERNS FAILED!                  ▓▓▓")
+        Log.e(TAG, "▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓")
+        Log.e(TAG, ">>> Received: $normalizedBody")
         
         return null
     }
@@ -123,23 +113,22 @@ object SmsParser {
         val transactionDate = matcher.group(9)?.trim() ?: ""
         val transactionTime = matcher.group(10)?.trim() ?: ""
 
-        Log.i(TAG, "════════════════════════════════════════════")
-        Log.i(TAG, "PARSED TRANSACTION DATA ($patternName)")
-        Log.i(TAG, "────────────────────────────────────────────")
-        Log.i(TAG, "Currency:       $currency")
-        Log.i(TAG, "Amount:         $amount")
-        Log.i(TAG, "Recipient:      $recipientName")
-        Log.i(TAG, "Account Ref:    $accountReference")
-        Log.i(TAG, "Payment Method: $paymentMethod")
-        Log.i(TAG, "MPESA Ref:      $mpesaReference")
-        Log.i(TAG, "Sender Name:    $senderName")
-        Log.i(TAG, "Sender Phone:   $senderPhone")
-        Log.i(TAG, "Date:           $transactionDate")
-        Log.i(TAG, "Time:           $transactionTime")
-        Log.i(TAG, "════════════════════════════════════════════")
+        Log.w(TAG, "▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓")
+        Log.w(TAG, "▓▓▓  TRANSACTION PARSED! ($patternName)    ▓▓▓")
+        Log.w(TAG, "▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓")
+        Log.w(TAG, ">>> Currency:       $currency")
+        Log.w(TAG, ">>> Amount:         $amount")
+        Log.w(TAG, ">>> Recipient:      $recipientName")
+        Log.w(TAG, ">>> Account Ref:    $accountReference")
+        Log.w(TAG, ">>> Payment Method: $paymentMethod")
+        Log.w(TAG, ">>> MPESA Ref:      $mpesaReference")
+        Log.w(TAG, ">>> Sender Name:    $senderName")
+        Log.w(TAG, ">>> Sender Phone:   $senderPhone")
+        Log.w(TAG, ">>> Date:           $transactionDate")
+        Log.w(TAG, ">>> Time:           $transactionTime")
 
         val transactionId = generateTransactionId(mpesaReference, accountReference)
-        Log.d(TAG, "Generated Transaction ID: $transactionId")
+        Log.w(TAG, ">>> Generated ID: $transactionId")
 
         return TransactionData(
             id = transactionId,

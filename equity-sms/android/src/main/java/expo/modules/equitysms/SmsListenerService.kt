@@ -111,14 +111,15 @@ class SmsListenerService : Service() {
         startForeground(NOTIFICATION_ID, createNotification())
         Log.d(TAG, "✓ Foreground service started")
         
-        // Register SMS receiver and set up listener
-        Log.d(TAG, "Step B: Registering SMS receiver...")
-        registerSmsReceiver()
-        Log.d(TAG, "✓ SMS receiver registered")
-        
-        Log.d(TAG, "Step C: Setting up SMS processing pipeline...")
+        // Set up SMS processing pipeline FIRST so listener is ready before broadcasts arrive
+        Log.d(TAG, "Step B: Setting up SMS processing pipeline...")
         setupSmsProcessing()
         Log.d(TAG, "✓ SMS processing pipeline ready")
+        
+        // THEN register the dynamic SMS receiver (broadcasts will find listener set)
+        Log.d(TAG, "Step C: Registering SMS receiver...")
+        registerSmsReceiver()
+        Log.d(TAG, "✓ SMS receiver registered")
         
         // Log current state
         Log.d(TAG, "──────────────────────────────────────────────")
@@ -264,19 +265,29 @@ class SmsListenerService : Service() {
     }
 
     private fun registerSmsReceiver() {
+        Log.w(TAG, "▓▓▓ registerSmsReceiver() called ▓▓▓")
         try {
             if (smsReceiver == null) {
+                Log.w(TAG, ">>> Creating new SmsReceiver instance")
                 smsReceiver = SmsReceiver()
                 val filter = IntentFilter(Telephony.Sms.Intents.SMS_RECEIVED_ACTION).apply {
                     priority = IntentFilter.SYSTEM_HIGH_PRIORITY
                 }
-                registerReceiver(smsReceiver, filter)
-                Log.i(TAG, "✓ SMS receiver registered with HIGH priority")
+                Log.w(TAG, ">>> Intent filter: ${Telephony.Sms.Intents.SMS_RECEIVED_ACTION}")
+                Log.w(TAG, ">>> Priority: SYSTEM_HIGH_PRIORITY")
+                // Android 13+ (TIRAMISU) requires RECEIVER_EXPORTED for system broadcasts
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    registerReceiver(smsReceiver, filter, Context.RECEIVER_EXPORTED)
+                    Log.w(TAG, ">>> ✓ Registered with RECEIVER_EXPORTED (Android 13+)")
+                } else {
+                    registerReceiver(smsReceiver, filter)
+                    Log.w(TAG, ">>> ✓ Registered (pre-Android 13)")
+                }
             } else {
-                Log.d(TAG, "SMS receiver already registered")
+                Log.w(TAG, ">>> SMS receiver already exists, skipping")
             }
         } catch (e: Exception) {
-            Log.e(TAG, "✗ Failed to register SMS receiver: ${e.message}")
+            Log.e(TAG, ">>> ✗ FAILED to register SMS receiver: ${e.message}")
             e.printStackTrace()
         }
     }
@@ -299,34 +310,31 @@ class SmsListenerService : Service() {
      * The listener is set up directly in the service, works independently of JavaScript.
      */
     private fun setupSmsProcessing() {
-        Log.d(TAG, "Setting up SMS processing pipeline...")
+        Log.w(TAG, "▓▓▓ setupSmsProcessing() called ▓▓▓")
+        Log.w(TAG, ">>> Setting SmsReceiver.smsListener...")
         
         SmsReceiver.smsListener = object : SmsReceiver.SmsListener {
             override fun onSmsReceived(transaction: TransactionData) {
-                Log.i(TAG, "╔═══════════════════════════════════════════╗")
-                Log.i(TAG, "║     NEW TRANSACTION RECEIVED              ║")
-                Log.i(TAG, "╚═══════════════════════════════════════════╝")
-                Log.i(TAG, "Transaction ID: ${transaction.id}")
-                Log.i(TAG, "Amount: ${transaction.amount} ${transaction.currency}")
-                Log.i(TAG, "MPESA Ref: ${transaction.mpesaReference}")
-                Log.i(TAG, "Sender: ${transaction.senderName} (${transaction.senderPhone})")
-                Log.i(TAG, "Recipient: ${transaction.recipientName}")
-                Log.i(TAG, "Date/Time: ${transaction.transactionDate} ${transaction.transactionTime}")
-                Log.i(TAG, "══════════════════════════════════════════════")
+                Log.w(TAG, "▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓")
+                Log.w(TAG, "▓▓▓  SERVICE: TRANSACTION FROM RECEIVER!  ▓▓▓")
+                Log.w(TAG, "▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓")
+                Log.w(TAG, ">>> Transaction ID: ${transaction.id}")
+                Log.w(TAG, ">>> Amount: ${transaction.amount} ${transaction.currency}")
+                Log.w(TAG, ">>> MPESA Ref: ${transaction.mpesaReference}")
+                Log.w(TAG, ">>> Sender: ${transaction.senderName}")
+                Log.w(TAG, ">>> Calling processTransaction...")
                 
                 processTransaction(transaction)
             }
 
             override fun onSmsError(error: String) {
-                Log.e(TAG, "════════════════════════════════════════════")
-                Log.e(TAG, "SMS PROCESSING ERROR: $error")
-                Log.e(TAG, "════════════════════════════════════════════")
+                Log.e(TAG, ">>> SERVICE: SMS ERROR: $error")
                 eventListener?.onError(error, "sms_processing_error")
             }
         }
         
-        Log.i(TAG, "✓ SMS processing pipeline configured")
-        Log.d(TAG, "SmsReceiver.smsListener: ${if (SmsReceiver.smsListener != null) "ACTIVE" else "NULL"}")
+        Log.w(TAG, ">>> ✓ SmsReceiver.smsListener is now SET")
+        Log.w(TAG, ">>> smsListener null check: ${SmsReceiver.smsListener != null}")
     }
 
     /**
@@ -334,80 +342,81 @@ class SmsListenerService : Service() {
      * This is the core offline-first processing logic.
      */
     private fun processTransaction(transaction: TransactionData) {
-        Log.d(TAG, "──────────────────────────────────────────────")
-        Log.d(TAG, "Processing transaction: ${transaction.id}")
+        Log.w(TAG, "▓▓▓ processTransaction() called ▓▓▓")
+        Log.w(TAG, ">>> Transaction ID: ${transaction.id}")
         
         // Step 1: Save locally first (offline-first approach)
-        Log.d(TAG, "Step 1: Saving to local storage...")
+        Log.w(TAG, ">>> Step 1: Saving to local storage...")
         val savedLocally = localStore.savePendingTransaction(transaction)
         
         if (!savedLocally) {
-            Log.w(TAG, "Transaction already exists locally (duplicate), skipping")
+            Log.w(TAG, ">>> Already exists locally (duplicate), skipping")
             return
         }
-        Log.i(TAG, "✓ Transaction saved to local storage")
+        Log.w(TAG, ">>> ✓ Saved to local storage")
         
         // Step 2: Notify JS listener if available (app in foreground)
-        Log.d(TAG, "Step 2: Notifying JS listener...")
+        Log.w(TAG, ">>> Step 2: Notifying JS listener...")
+        Log.w(TAG, ">>> eventListener is: ${eventListener}")
         if (eventListener != null) {
             eventListener?.onSmsReceived(transaction)
-            Log.i(TAG, "✓ JS listener notified (app is in foreground)")
+            Log.w(TAG, ">>> ✓ JS listener notified")
         } else {
-            Log.d(TAG, "JS listener is null - app is closed/background (normal)")
-            Log.d(TAG, "Transaction will show when app is opened")
+            Log.w(TAG, ">>> JS listener is null (app closed/background)")
         }
         
         // Update notification to show pending count
         updateNotification()
         
         // Step 3: Try to sync to Firestore if online
-        Log.d(TAG, "Step 3: Checking network for Firestore sync...")
+        Log.w(TAG, ">>> Step 3: Checking network for Firestore...")
+        Log.w(TAG, ">>> Network available: ${isNetworkAvailable()}")
+        Log.w(TAG, ">>> Firestore available: ${firestoreRepository.isAvailable()}")
+        
         if (isNetworkAvailable()) {
-            Log.d(TAG, "Network available - initiating Firestore sync")
+            Log.w(TAG, ">>> Calling syncTransactionToFirestore...")
             syncTransactionToFirestore(transaction)
         } else {
-            Log.w(TAG, "OFFLINE - Transaction queued for later sync")
-            Log.d(TAG, "Pending transactions: ${localStore.getPendingTransactions().size}")
+            Log.w(TAG, ">>> OFFLINE - queued for later sync")
         }
         
-        Log.d(TAG, "──────────────────────────────────────────────")
+        Log.w(TAG, "▓▓▓ processTransaction() done ▓▓▓")
     }
 
     /**
      * Syncs a single transaction to Firestore.
      */
     private fun syncTransactionToFirestore(transaction: TransactionData) {
-        Log.d(TAG, "Syncing to Firestore: ${transaction.id}")
+        Log.w(TAG, ">>> syncTransactionToFirestore: ${transaction.id}")
         
         if (!firestoreRepository.isAvailable()) {
-            Log.e(TAG, "✗ Firestore not available - check google-services.json")
+            Log.e(TAG, ">>> ✗ Firestore NOT available!")
             return
         }
         
+        Log.w(TAG, ">>> Calling firestoreRepository.saveTransactionAsync...")
         firestoreRepository.saveTransactionAsync(
             transaction,
             onSuccess = { id ->
-                Log.i(TAG, "════════════════════════════════════════════")
-                Log.i(TAG, "✓ FIRESTORE SYNC SUCCESS")
-                Log.i(TAG, "Transaction ID: $id")
-                Log.i(TAG, "Amount: ${transaction.amount} ${transaction.currency}")
-                Log.i(TAG, "════════════════════════════════════════════")
+                Log.w(TAG, "▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓")
+                Log.w(TAG, "▓▓▓  FIRESTORE SUCCESS!                    ▓▓▓")
+                Log.w(TAG, "▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓")
+                Log.w(TAG, ">>> ID: $id")
+                Log.w(TAG, ">>> Amount: ${transaction.amount}")
                 
                 localStore.markAsSynced(transaction.id)
                 updateNotification()
                 
                 if (eventListener != null) {
                     eventListener?.onTransactionSaved(id, transaction)
-                    Log.d(TAG, "✓ JS event listener notified of save")
+                    Log.w(TAG, ">>> JS notified of Firestore save")
                 }
             },
             onError = { error ->
-                Log.e(TAG, "════════════════════════════════════════════")
-                Log.e(TAG, "✗ FIRESTORE SYNC FAILED")
-                Log.e(TAG, "Transaction: ${transaction.id}")
-                Log.e(TAG, "Error: $error")
-                Log.e(TAG, "Transaction remains in pending queue for retry")
-                Log.e(TAG, "════════════════════════════════════════════")
+                Log.e(TAG, "▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓")
+                Log.e(TAG, "▓▓▓  FIRESTORE FAILED!                     ▓▓▓")
+                Log.e(TAG, "▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓")
+                Log.e(TAG, ">>> Error: $error")
                 
                 eventListener?.onError(error, "firestore_save_failed", transaction)
             }

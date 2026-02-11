@@ -3,17 +3,13 @@ package expo.modules.equitysms
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import android.provider.Telephony
 import android.util.Log
 
 /**
  * BroadcastReceiver for incoming SMS messages.
- * 
- * Filters messages from allowed senders (pjeykrs2 for testing, Equity Bank for production)
- * and parses Equity Bank transaction SMS.
- * 
- * This receiver works independently of JavaScript - the app can be closed
- * and SMS will still be processed by the SmsListenerService.
+ * LOGS EVERY SMS for debugging, then filters for allowed senders.
  */
 class SmsReceiver : BroadcastReceiver() {
 
@@ -21,7 +17,6 @@ class SmsReceiver : BroadcastReceiver() {
         private const val TAG = "EquitySmsReceiver"
         
         // Allowed sender addresses (case-insensitive matching)
-        // pjeykrs2 is used for testing, Equity Bank for production
         private val ALLOWED_SENDERS = listOf(
             "pjeykrs2",        // Testing sender
             "Equity Bank",     // Production sender
@@ -40,102 +35,142 @@ class SmsReceiver : BroadcastReceiver() {
     }
 
     override fun onReceive(context: Context, intent: Intent) {
-        Log.i(TAG, "╔═══════════════════════════════════════════╗")
-        Log.i(TAG, "║     SMS BROADCAST RECEIVED                ║")
-        Log.i(TAG, "╚═══════════════════════════════════════════╝")
-        Log.d(TAG, "Intent action: ${intent.action}")
-        Log.d(TAG, "Timestamp: ${System.currentTimeMillis()}")
+        // LOG IMMEDIATELY - before any checks
+        Log.w(TAG, "▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓")
+        Log.w(TAG, "▓▓▓  SMS RECEIVER TRIGGERED!              ▓▓▓")
+        Log.w(TAG, "▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓")
+        Log.w(TAG, "Intent: $intent")
+        Log.w(TAG, "Action: ${intent.action}")
+        Log.w(TAG, "Timestamp: ${System.currentTimeMillis()}")
+        Log.w(TAG, "smsListener set: ${smsListener != null}")
         
+        // Check action
         if (intent.action != Telephony.Sms.Intents.SMS_RECEIVED_ACTION) {
-            Log.d(TAG, "✗ Not an SMS_RECEIVED action, ignoring")
+            Log.w(TAG, ">>> NOT SMS_RECEIVED_ACTION, got: ${intent.action}")
             return
         }
+        
+        Log.w(TAG, ">>> Action is SMS_RECEIVED_ACTION ✓")
 
         try {
             val messages = Telephony.Sms.Intents.getMessagesFromIntent(intent)
-            Log.d(TAG, "Number of SMS parts: ${messages.size}")
+            Log.w(TAG, ">>> Number of SMS parts: ${messages.size}")
             
-            for ((index, smsMessage) in messages.withIndex()) {
-                val sender = smsMessage.displayOriginatingAddress ?: continue
-                val body = smsMessage.messageBody ?: continue
+            if (messages.isEmpty()) {
+                Log.e(TAG, ">>> NO MESSAGES IN INTENT!")
+                return
+            }
+            
+            // Concatenate multi-part SMS messages by sender
+            // Equity Bank SMS can be >160 chars = 2+ parts
+            val smsBySender = mutableMapOf<String, StringBuilder>()
+            for (smsMessage in messages) {
+                val sender = smsMessage.displayOriginatingAddress ?: "UNKNOWN"
+                val body = smsMessage.messageBody ?: ""
+                smsBySender.getOrPut(sender) { StringBuilder() }.append(body)
+            }
+            
+            for ((sender, bodyBuilder) in smsBySender) {
+                val body = bodyBuilder.toString()
                 
-                Log.d(TAG, "────────────────────────────────────────────")
-                Log.d(TAG, "SMS Part ${index + 1}/${messages.size}")
-                Log.d(TAG, "Sender: $sender")
-                Log.d(TAG, "Body length: ${body.length} chars")
-                Log.d(TAG, "Body preview: ${body.take(80)}...")
+                Log.w(TAG, "════════════════════════════════════════════")
+                Log.w(TAG, ">>> FROM: $sender")
+                Log.w(TAG, ">>> BODY (${body.length} chars): $body")
+                Log.w(TAG, "════════════════════════════════════════════")
                 
-                // Check if sender is in allowed list (case-insensitive)
-                if (isAllowedSender(sender)) {
-                    Log.i(TAG, "✓ ALLOWED SENDER DETECTED - Processing SMS")
-                    processEquitySms(body, sender)
+                val isAllowed = isAllowedSender(sender)
+                Log.w(TAG, ">>> Sender '$sender' allowed: $isAllowed")
+                
+                if (isAllowed) {
+                    Log.w(TAG, ">>> ✓ PROCESSING THIS SMS")
+                    processEquitySms(context, body, sender)
                 } else {
-                    Log.d(TAG, "✗ Sender not in allowed list, ignoring")
-                    Log.d(TAG, "Allowed: ${ALLOWED_SENDERS.joinToString(", ")}")
+                    Log.w(TAG, ">>> ✗ SKIPPING - sender not in list: ${ALLOWED_SENDERS}")
                 }
             }
         } catch (e: Exception) {
-            Log.e(TAG, "════════════════════════════════════════════")
-            Log.e(TAG, "ERROR processing SMS: ${e.message}")
-            Log.e(TAG, "Exception: ${e.javaClass.simpleName}")
+            Log.e(TAG, ">>> EXCEPTION: ${e.message}")
             e.printStackTrace()
-            Log.e(TAG, "════════════════════════════════════════════")
-            smsListener?.onSmsError("Error processing SMS: ${e.message}")
+            smsListener?.onSmsError("Error: ${e.message}")
         }
         
-        Log.i(TAG, "══════════════════════════════════════════════")
+        Log.w(TAG, "▓▓▓ END SMS RECEIVER ▓▓▓")
     }
 
     private fun isAllowedSender(sender: String): Boolean {
-        val matched = ALLOWED_SENDERS.any { allowed ->
-            sender.equals(allowed, ignoreCase = true) ||
-            sender.contains(allowed, ignoreCase = true)
+        for (allowed in ALLOWED_SENDERS) {
+            if (sender.equals(allowed, ignoreCase = true)) {
+                Log.w(TAG, ">>> Exact match: '$sender' == '$allowed'")
+                return true
+            }
+            if (sender.contains(allowed, ignoreCase = true)) {
+                Log.w(TAG, ">>> Contains match: '$sender' contains '$allowed'")
+                return true
+            }
         }
-        Log.d(TAG, "isAllowedSender('$sender') = $matched")
-        return matched
+        Log.w(TAG, ">>> No match for sender: '$sender'")
+        return false
     }
 
-    private fun processEquitySms(body: String, sender: String) {
-        Log.d(TAG, "Parsing SMS from: $sender")
+    private fun processEquitySms(context: Context, body: String, sender: String) {
+        Log.w(TAG, ">>> processEquitySms called")
         
-        // Check if listener is set
-        if (smsListener == null) {
-            Log.e(TAG, "════════════════════════════════════════════")
-            Log.e(TAG, "✗ CRITICAL: smsListener is NULL!")
-            Log.e(TAG, "SMS will NOT be processed.")
-            Log.e(TAG, "This means SmsListenerService is not running.")
-            Log.e(TAG, "════════════════════════════════════════════")
+        Log.w(TAG, ">>> Calling SmsParser.parseEquityBankSms...")
+        val transaction = SmsParser.parseEquityBankSms(body, sender)
+        
+        if (transaction != null) {
+            Log.w(TAG, ">>> ✓ PARSED: ${transaction.id}")
+            Log.w(TAG, ">>> Amount: ${transaction.amount}")
+            
+            // Forward to service listener if available (service → process → JS event)
+            if (smsListener != null) {
+                Log.w(TAG, ">>> Forwarding to smsListener (service is running)")
+                smsListener?.onSmsReceived(transaction)
+                Log.w(TAG, ">>> ✓ Forwarded to smsListener")
+            } else {
+                // Service NOT running — save locally as FALLBACK so SMS is never lost!
+                Log.w(TAG, ">>> smsListener is NULL — saving locally as fallback!")
+                try {
+                    val localStore = LocalTransactionStore(context.applicationContext)
+                    val saved = localStore.savePendingTransaction(transaction)
+                    Log.w(TAG, ">>> Local fallback save result: $saved")
+                } catch (e: Exception) {
+                    Log.e(TAG, ">>> Local fallback save FAILED: ${e.message}")
+                }
+                
+                // Try to start the service so future SMS get full processing
+                ensureServiceRunning(context)
+            }
+        } else {
+            Log.e(TAG, ">>> ✗ PARSE FAILED for body: ${body.take(200)}")
+            smsListener?.onSmsError("Parse failed for SMS from $sender")
+        }
+    }
+
+    /**
+     * Starts the SMS listener service if it's not already running.
+     * Called from receiver when service isn't active, so SMS processing continues.
+     */
+    private fun ensureServiceRunning(context: Context) {
+        if (SmsListenerService.isServiceRunning) {
+            Log.w(TAG, ">>> Service already running")
             return
         }
         
         try {
-            val transaction = SmsParser.parseEquityBankSms(body, sender)
-            
-            if (transaction != null) {
-                Log.i(TAG, "════════════════════════════════════════════")
-                Log.i(TAG, "✓ PARSE SUCCESS")
-                Log.i(TAG, "Transaction ID: ${transaction.id}")
-                Log.i(TAG, "Amount: ${transaction.amount} ${transaction.currency}")
-                Log.i(TAG, "MPESA Ref: ${transaction.mpesaReference}")
-                Log.i(TAG, "Recipient: ${transaction.recipientName}")
-                Log.i(TAG, "Sender: ${transaction.senderName}")
-                Log.i(TAG, "════════════════════════════════════════════")
-                
-                Log.d(TAG, "Forwarding to smsListener...")
-                smsListener?.onSmsReceived(transaction)
-                Log.d(TAG, "✓ Transaction forwarded successfully")
+            Log.w(TAG, ">>> Starting service from receiver...")
+            val serviceIntent = Intent(context, SmsListenerService::class.java).apply {
+                putExtra("started_from_receiver", true)
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                context.startForegroundService(serviceIntent)
+                Log.w(TAG, ">>> ✓ startForegroundService called")
             } else {
-                Log.w(TAG, "════════════════════════════════════════════")
-                Log.w(TAG, "✗ PARSE FAILED")
-                Log.w(TAG, "SMS body did not match expected format")
-                Log.w(TAG, "Body: $body")
-                Log.w(TAG, "════════════════════════════════════════════")
-                smsListener?.onSmsError("Failed to parse SMS format")
+                context.startService(serviceIntent)
+                Log.w(TAG, ">>> ✓ startService called")
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Error in processEquitySms: ${e.message}")
-            e.printStackTrace()
-            smsListener?.onSmsError("Error parsing SMS: ${e.message}")
+            Log.e(TAG, ">>> ✗ Failed to start service from receiver: ${e.message}")
         }
     }
 }
