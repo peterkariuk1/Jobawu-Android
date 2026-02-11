@@ -23,6 +23,7 @@
       "permissions": [
         "android.permission.RECEIVE_SMS",
         "android.permission.READ_SMS",
+        "android.permission.POST_NOTIFICATIONS",
         "android.permission.RECEIVE_BOOT_COMPLETED",
         "android.permission.FOREGROUND_SERVICE",
         "android.permission.FOREGROUND_SERVICE_DATA_SYNC",

@@ -1,6 +1,6 @@
 import type { TransactionData } from 'equity-sms';
 import React, { useEffect, useState } from 'react';
-import { Alert, FlatList, Platform, RefreshControl, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, FlatList, PermissionsAndroid, Platform, RefreshControl, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Sidebar } from '../../components/sidebar';
 import { colors, spacing, typography } from '../../constants/design';
@@ -35,24 +35,56 @@ export default function ReconciliationScreen() {
 
   const [refreshing, setRefreshing] = React.useState(false);
   const [isTesting, setIsTesting] = React.useState(false);
+  const [permissionsChecked, setPermissionsChecked] = React.useState(false);
 
-  // Request permissions on mount
+  // Check actual Android system permissions and auto-request if needed
   useEffect(() => {
-    if (Platform.OS === 'android' && permissions && !permissions.allGranted) {
-      console.log('[Reconciliation] Requesting permissions...');
-      requestPermissions();
-    }
-  }, [permissions, requestPermissions]);
+    if (Platform.OS !== 'android' || permissionsChecked) return;
 
-  // Auto-start listening when permissions are granted
-  useEffect(() => {
-    if (Platform.OS === 'android' && permissions?.allGranted && !isListening) {
-      console.log('[Reconciliation] Permissions granted, starting listener...');
-      startListening().catch(err => {
-        console.error('[Reconciliation] Failed to auto-start:', err);
-      });
-    }
-  }, [permissions?.allGranted, isListening, startListening]);
+    const checkAndRequestPermissions = async () => {
+      try {
+        // Check if READ_SMS, RECEIVE_SMS, and POST_NOTIFICATIONS permissions are granted
+        const readSmsGranted = await PermissionsAndroid.check(
+          PermissionsAndroid.PERMISSIONS.READ_SMS
+        );
+        const receiveSmsGranted = await PermissionsAndroid.check(
+          PermissionsAndroid.PERMISSIONS.RECEIVE_SMS
+        );
+        const postNotificationsGranted = await PermissionsAndroid.check(
+          PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS
+        );
+
+        console.log('[Reconciliation] Permission status:', {
+          readSms: readSmsGranted,
+          receiveSms: receiveSmsGranted,
+          postNotifications: postNotificationsGranted,
+        });
+
+        if (readSmsGranted && receiveSmsGranted && postNotificationsGranted) {
+          // All required permissions already granted - auto-start without any prompts
+          console.log('[Reconciliation] All permissions already granted, auto-starting...');
+          if (!isListening) {
+            try {
+              await startListening();
+              console.log('[Reconciliation] Successfully started listening');
+            } catch (error) {
+              console.error('[Reconciliation] Failed to auto-start listening:', error);
+            }
+          }
+        } else {
+          // Some permissions not granted yet - request them all
+          console.log('[Reconciliation] Some permissions not granted, requesting...');
+          await requestPermissions();
+        }
+      } catch (error) {
+        console.error('[Reconciliation] Error checking permissions:', error);
+      } finally {
+        setPermissionsChecked(true);
+      }
+    };
+
+    checkAndRequestPermissions();
+  }, [permissionsChecked, isListening, startListening, requestPermissions]);
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -244,7 +276,7 @@ export default function ReconciliationScreen() {
             <Text className="text-sm mb-1">• SMS Permission: {permissions?.sms ? '✅' : '❌'}</Text>
             <Text className="text-sm mb-1">• SMS Read: {permissions?.readSms ? '✅' : '❌'}</Text>
             <Text className="text-sm mb-1">• Post Notifications: {permissions?.postNotifications ? '✅' : '❌'}</Text>
-            <Text className="text-sm mb-1">• Boot Permission: {permissions?.bootComplete ? '✅' : '❌'}</Text>
+            <Text className="text-sm mb-1">• Boot Permission: {permissions?.bootCompleted ? '✅' : '❌'}</Text>
             
             <Text className="text-blue-900 font-bold mt-3 mb-2">Transactions:</Text>
             <Text className="text-sm mb-1">• Local Stored: {transactions.length}</Text>
@@ -293,16 +325,18 @@ export default function ReconciliationScreen() {
         )}
 
         {/* Control Buttons */}
-        <View className="flex-row space-x-2 mb-2">
-          <TouchableOpacity
-            onPress={handleToggleListening}
-            className={`flex-1 rounded-md py-3 ${isListening ? 'bg-red-500' : 'bg-green-500'}`}
-          >
-            <Text className="text-white text-center font-medium">
-              {isListening ? 'Stop Listening' : 'Start Listening'}
-            </Text>
-          </TouchableOpacity>
-        </View>
+        {isListening && (
+          <View className="flex-row space-x-2 mb-2">
+            <TouchableOpacity
+              onPress={handleToggleListening}
+              className="flex-1 rounded-md py-3 bg-red-500"
+            >
+              <Text className="text-white text-center font-medium">
+                Stop Listening
+              </Text>
+            </TouchableOpacity>
+          </View>
+        )}
         
         {/* Test Buttons Row */}
         <View className="flex-row space-x-2">

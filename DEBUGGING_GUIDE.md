@@ -15,7 +15,7 @@ If the test buttons work but real SMS messages aren't being captured, follow the
    - Boot Permission: ✅
    - Listening: YES
 
-If any show ❌, tap "Request Permissions" and grant all permissions.
+If any show , tap "Request Permissions" and grant all permissions.
 
 ## Step 2: Check Battery Optimization
 

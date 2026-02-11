@@ -236,11 +236,30 @@ export function useEquitySms(): UseEquitySmsReturn {
     }
 
     try {
-      // Check permissions first
-      const permStatus = EquitySmsModule.checkPermissions();
-      if (!permStatus.allGranted) {
+      // Check for required permissions: SMS (read + receive) and notifications
+      const readSmsGranted = await PermissionsAndroid.check(
+        PermissionsAndroid.PERMISSIONS.READ_SMS
+      );
+      const receiveSmsGranted = await PermissionsAndroid.check(
+        PermissionsAndroid.PERMISSIONS.RECEIVE_SMS
+      );
+      const postNotificationsGranted = await PermissionsAndroid.check(
+        PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS
+      );
+
+      console.log('[EquitySms] Permission check before startListening:', {
+        readSms: readSmsGranted,
+        receiveSms: receiveSmsGranted,
+        postNotifications: postNotificationsGranted,
+      });
+
+      if (!readSmsGranted || !receiveSmsGranted || !postNotificationsGranted) {
+        console.log('[EquitySms] Required permissions not granted, requesting...');
         const granted = await requestPermissions();
-        if (!granted) return;
+        if (!granted) {
+          console.error('[EquitySms] User denied permissions');
+          return;
+        }
       }
 
       const result = await EquitySmsModule.startListening();
