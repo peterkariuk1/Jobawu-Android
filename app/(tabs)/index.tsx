@@ -16,7 +16,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Sidebar } from '../../components/sidebar';
 import { borderRadius, colors, shadows, spacing, typography } from '../../constants/design';
-import { db } from '../../firebaseConfig';
+import { db } from '../../firebaseConfig.ts';
 
 interface Payment {
   id: string;
