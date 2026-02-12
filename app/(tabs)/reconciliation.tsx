@@ -11,9 +11,8 @@ import { useEquitySms } from '../../hooks/use-equity-sms';
  * 
  * Features:
  * - Real-time SMS monitoring for Equity Bank transactions
- * - Offline-first with automatic Firestore sync
- * - Test parse (no save) and test parse+save buttons
- * - Transaction reconciliation workflow
+ * - Automatic Firebase sync on SMS receipt
+ * - Display recent transactions
  */
 export default function ReconciliationScreen() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -28,13 +27,9 @@ export default function ReconciliationScreen() {
     stopListening,
     requestPermissions,
     refreshLocalTransactions,
-    markAsReconciled,
-    parseSms,
-    testParseAndSave,
   } = useEquitySms();
 
   const [refreshing, setRefreshing] = React.useState(false);
-  const [isTesting, setIsTesting] = React.useState(false);
   const [permissionsChecked, setPermissionsChecked] = React.useState(false);
 
   // Check actual Android system permissions and auto-request if needed
@@ -104,86 +99,15 @@ export default function ReconciliationScreen() {
     }
   };
 
-  // Test SMS message - matches Equity Bank format
-  const TEST_SMS = `Confirmed KES. 7,940.00 to GRACEWANGECHIMUREITHI A/C Ref.Number 11111 Via MPESA Ref UAGH013ERL6 by Dennis Ngumbi Agnes Phone 25479354525 on 10-01-2026 at 10:39.Thank you.`;
-  const TEST_SENDER = 'pjeykrs2';
-
-  const handleTestParseOnly = () => {
-    console.log('[Reconciliation] ====== TEST PARSE ONLY ======');
-    console.log('[Reconciliation] This only parses, does NOT save to Firebase');
-    
-    const result = parseSms(TEST_SMS, TEST_SENDER);
-    
-    if (result) {
-      console.log('[Reconciliation] ✓ Parse successful:', result);
-      Alert.alert(
-        '✓ Parse Successful (Not Saved)',
-        `Amount: KES ${result.amount.toLocaleString()}\n` +
-        `Recipient: ${result.recipientName}\n` +
-        `Sender: ${result.senderName}\n` +
-        `Phone: ${result.senderPhone}\n` +
-        `MPESA Ref: ${result.mpesaReference}\n` +
-        `Date: ${result.transactionDate} ${result.transactionTime}\n\n` +
-        `Note: This was just a parse test. Use "Test & Save" to save to Firebase.`
-      );
-    } else {
-      console.log('[Reconciliation] ✗ Parse failed');
-      Alert.alert('✗ Parse Failed', 'Could not parse the SMS message. Check Logcat for details.');
-    }
-  };
-
-  const handleTestParseAndSave = async () => {
-    console.log('[Reconciliation] ====== TEST PARSE AND SAVE ======');
-    console.log('[Reconciliation] This parses AND saves to Firebase');
-    
-    setIsTesting(true);
-    
-    try {
-      const result = await testParseAndSave(TEST_SMS, TEST_SENDER);
-      
-      if (result) {
-        console.log('[Reconciliation] ✓ Parse and save successful!');
-        Alert.alert(
-          '✓ Saved to Firebase!',
-          `Transaction saved successfully!\n\n` +
-          `ID: ${result.id}\n` +
-          `Amount: KES ${result.amount.toLocaleString()}\n` +
-          `MPESA Ref: ${result.mpesaReference}\n\n` +
-          `Check Logcat for detailed logs.`
-        );
-      } else {
-        console.log('[Reconciliation] ✗ Parse and save failed');
-        Alert.alert('✗ Save Failed', 'Parse succeeded but save failed. Check Logcat for details.');
-      }
-    } catch (error) {
-      console.error('[Reconciliation] Test error:', error);
-      Alert.alert('Error', error instanceof Error ? error.message : 'Unknown error occurred');
-    } finally {
-      setIsTesting(false);
-    }
-  };
-
-  const handleReconcile = async (transactionId: string) => {
-    const success = await markAsReconciled(transactionId);
-    if (success) {
-      Alert.alert('✓ Success', 'Transaction marked as reconciled');
-      refreshLocalTransactions();
-    } else {
-      Alert.alert('✗ Error', 'Failed to reconcile transaction. Check logs for details.');
-    }
-  };
-
   const renderTransaction = ({ item }: { item: TransactionData }) => (
     <View className="bg-white rounded-lg p-4 mb-3 shadow-sm border border-gray-100">
       <View className="flex-row justify-between items-start mb-2">
         <Text className="text-lg font-bold text-green-600">
           KES {item.amount.toLocaleString()}
         </Text>
-        <View className={`px-2 py-1 rounded ${item.reconciled ? 'bg-green-100' : 'bg-yellow-100'}`}>
-          <Text className={`text-xs font-medium ${item.reconciled ? 'text-green-700' : 'text-yellow-700'}`}>
-            {item.reconciled ? 'Reconciled' : 'Pending'}
-          </Text>
-        </View>
+        <Text className="text-gray-600 text-xs font-medium">
+          {new Date(item.createdAt).toLocaleDateString()}
+        </Text>
       </View>
       
       <Text className="text-gray-700 font-medium">{item.recipientName}</Text>
@@ -193,15 +117,6 @@ export default function ReconciliationScreen() {
         {item.transactionDate} at {item.transactionTime}
       </Text>
       <Text className="text-gray-400 text-xs">Ref: {item.mpesaReference}</Text>
-      
-      {!item.reconciled && (
-        <TouchableOpacity
-          onPress={() => handleReconcile(item.id)}
-          className="mt-3 bg-blue-500 rounded-md py-2 px-4"
-        >
-          <Text className="text-white text-center font-medium">Mark as Reconciled</Text>
-        </TouchableOpacity>
-      )}
     </View>
   );
 
@@ -293,20 +208,11 @@ export default function ReconciliationScreen() {
             <Text className="text-xs text-blue-800">
               1. Make sure all permissions are ✅{'\n'}
               2. Service should show "Listening: YES"{'\n'}
-              3. Send a real SMS from Equity Bank to your phone{'\n'}
-              4. Watch this screen - new transactions should appear automatically{'\n'}
-              5. Use Test buttons below to verify parsing works
+              3. Send an SMS from Equity Bank to your phone{'\n'}
+              4. Watch this screen - transactions appear automatically and sync to Firebase
             </Text>
           </View>
         )}
-        
-        {/* Permission Status */}
-        <View className="flex-row items-center mb-2">
-          <Text className="text-gray-600 mr-2">SMS Permission:</Text>
-          <Text className={`font-medium ${permissions?.sms ? 'text-green-600' : 'text-red-600'}`}>
-            {permissions?.sms ? 'Granted' : 'Not Granted'}
-          </Text>
-        </View>
 
         {/* Pending Sync Status */}
         {pendingTransactions.length > 0 && (
@@ -337,26 +243,6 @@ export default function ReconciliationScreen() {
             </TouchableOpacity>
           </View>
         )}
-        
-        {/* Test Buttons Row */}
-        <View className="flex-row space-x-2">
-          <TouchableOpacity
-            onPress={handleTestParseOnly}
-            className="flex-1 bg-gray-500 rounded-md py-3"
-          >
-            <Text className="text-white text-center font-medium text-sm">Test Parse</Text>
-          </TouchableOpacity>
-          
-          <TouchableOpacity
-            onPress={handleTestParseAndSave}
-            disabled={isTesting}
-            className={`flex-1 rounded-md py-3 ${isTesting ? 'bg-blue-300' : 'bg-blue-500'}`}
-          >
-            <Text className="text-white text-center font-medium text-sm">
-              {isTesting ? 'Saving...' : 'Test & Save'}
-            </Text>
-          </TouchableOpacity>
-        </View>
       </View>
 
       {/* Transactions List */}
@@ -369,9 +255,7 @@ export default function ReconciliationScreen() {
           <View className="flex-1 items-center justify-center">
             <Text className="text-gray-400 text-center">
               No transactions yet.{'\n'}
-              Send a test SMS from 'pjeykrs2' or Equity Bank.{'\n\n'}
-              Check Logcat for debugging:{'\n'}
-              adb logcat -s EquitySmsReceiver EquitySmsParser SmsListenerService
+              Transactions will appear here when they're received from Equity Bank.
             </Text>
           </View>
         ) : (

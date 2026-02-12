@@ -16,15 +16,6 @@ class SmsReceiver : BroadcastReceiver() {
     companion object {
         private const val TAG = "EquitySmsReceiver"
         
-        // Allowed sender addresses (case-insensitive matching)
-        private val ALLOWED_SENDERS = listOf(
-            "pjeykrs2",        // Testing sender
-            "Equity Bank",     // Production sender
-            "EQUITYBANK",      // Alternative format
-            "EQUITY BANK",     // Alternative format with space
-            "EquityBank"       // Another variation
-        )
-        
         // Listener for SMS events - set by SmsListenerService
         var smsListener: SmsListener? = null
     }
@@ -78,16 +69,9 @@ class SmsReceiver : BroadcastReceiver() {
                 Log.w(TAG, ">>> BODY (${body.length} chars): $body")
                 Log.w(TAG, "════════════════════════════════════════════")
                 
-                val isAllowed = isAllowedSender(sender)
-                Log.w(TAG, ">>> Sender '$sender' allowed: $isAllowed")
-                
-                if (isAllowed) {
-                    Log.w(TAG, ">>> ✓ PROCESSING THIS SMS")
-                    processEquitySms(context, body, sender)
-                } else {
-                    Log.w(TAG, ">>> ✗ SKIPPING - sender not in list: ${ALLOWED_SENDERS}")
-                }
-            }
+                // Trust the parser's pattern matching to determine if it's an Equity Bank SMS
+                Log.w(TAG, ">>> Attempting to parse as Equity Bank SMS")
+                processEquitySms(context, body, sender)
         } catch (e: Exception) {
             Log.e(TAG, ">>> EXCEPTION: ${e.message}")
             e.printStackTrace()
@@ -95,21 +79,6 @@ class SmsReceiver : BroadcastReceiver() {
         }
         
         Log.w(TAG, "▓▓▓ END SMS RECEIVER ▓▓▓")
-    }
-
-    private fun isAllowedSender(sender: String): Boolean {
-        for (allowed in ALLOWED_SENDERS) {
-            if (sender.equals(allowed, ignoreCase = true)) {
-                Log.w(TAG, ">>> Exact match: '$sender' == '$allowed'")
-                return true
-            }
-            if (sender.contains(allowed, ignoreCase = true)) {
-                Log.w(TAG, ">>> Contains match: '$sender' contains '$allowed'")
-                return true
-            }
-        }
-        Log.w(TAG, ">>> No match for sender: '$sender'")
-        return false
     }
 
     private fun processEquitySms(context: Context, body: String, sender: String) {

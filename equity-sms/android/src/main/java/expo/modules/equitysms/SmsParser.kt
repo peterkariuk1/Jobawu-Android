@@ -20,6 +20,14 @@ object SmsParser {
 
     private const val TAG = "EquitySmsParser"
 
+    // Equity Bank message signature patterns - trust template, not sender
+    private val EQUITY_PATTERNS = listOf(
+        "Confirmed KES",           // Equity sends messages with this format
+        "MPESA Ref",               // MPESA reference always present
+        "Ref.Number",              // Reference number format
+        "Thank you."               // Equity's closing signature
+    )
+
     // Primary regex pattern for Equity Bank SMS
     private val EQUITY_SMS_PATTERN = Pattern.compile(
         """Confirmed\s+([A-Z]{3})[\.\s]*([\d,]+\.?\d*)\s+to\s+([A-Za-z\s]+?)\s+A/?C\s*Ref\.?\s*Number\s*(\d+)\s+Via\s+(\w+)\s+Ref\s+([A-Z0-9]+)\s+by\s+(.+?)\s+Phone\s+(\d+)\s+on\s+(\d{2}-\d{2}-\d{4})\s+at\s+(\d{2}:\d{2})""",
@@ -37,6 +45,22 @@ object SmsParser {
         """Confirmed.*?([A-Z]{3})[\.\s]*([\d,\.]+).*?to\s+(.+?)\s+A/?C.*?Ref.*?Number\s*(\d+).*?Via\s+(\w+)\s+Ref\s+([A-Z0-9]+).*?by\s+(.+?)\s+Phone\s+(\d+).*?(\d{2}-\d{2}-\d{4}).*?(\d{2}:\d{2})""",
         Pattern.CASE_INSENSITIVE or Pattern.DOTALL
     )
+
+    /**
+     * Checks if the SMS message matches Equity Bank patterns.
+     * Uses template matching instead of sender validation.
+     */
+    private fun matchesEquityPattern(smsBody: String): Boolean {
+        val normalizedBody = smsBody.replace(Regex("\\s+"), " ").trim()
+        for (pattern in EQUITY_PATTERNS) {
+            if (!normalizedBody.contains(pattern, ignoreCase = true)) {
+                Log.w(TAG, ">>> Pattern not found: '$pattern'")
+                return false
+            }
+        }
+        Log.w(TAG, ">>> ✓ All Equity patterns found!")
+        return true
+    }
 
     /**
      * Parses an Equity Bank SMS message and extracts transaction details.
@@ -61,6 +85,14 @@ object SmsParser {
             .trim()
         
         Log.w(TAG, ">>> Normalized: $normalizedBody")
+
+        // Quick check: does it match Equity Bank pattern?
+        if (!matchesEquityPattern(smsBody)) {
+            Log.e(TAG, ">>> ✗ Message does not match Equity Bank pattern signature")
+            return null
+        }
+
+        Log.w(TAG, ">>> ✓ Pattern signature verified, proceeding with regex parsing")
 
         // Try patterns in order of strictness
         val patterns = listOf(
