@@ -72,6 +72,7 @@ class SmsReceiver : BroadcastReceiver() {
                 // Trust the parser's pattern matching to determine if it's an Equity Bank SMS
                 Log.w(TAG, ">>> Attempting to parse as Equity Bank SMS")
                 processEquitySms(context, body, sender)
+            }
         } catch (e: Exception) {
             Log.e(TAG, ">>> EXCEPTION: ${e.message}")
             e.printStackTrace()
