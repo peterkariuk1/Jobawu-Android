@@ -112,8 +112,8 @@ class SmsReceiver : BroadcastReceiver() {
                 ensureServiceRunning(context)
             }
         } else {
-            Log.e(TAG, ">>> ✗ PARSE FAILED for body: ${body.take(200)}")
-            smsListener?.onSmsError("Parse failed for SMS from $sender")
+            // Not an Equity Bank message - silently ignore (expected for Safaricom, etc.)
+            Log.w(TAG, ">>> ℹ Not an Equity Bank SMS - ignoring (from: $sender)")
         }
     }
 

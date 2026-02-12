@@ -103,6 +103,13 @@ declare class EquitySmsModule extends NativeModule<EquitySmsModuleEvents> {
    * @returns Array of pending transactions
    */
   getPendingTransactions(): TransactionData[];
+
+  /**
+   * Marks a local pending transaction as synced (moves pending -> synced).
+   * @param transactionId - The ID of the transaction to mark
+   * @returns boolean indicating success
+   */
+  markLocalAsSynced(transactionId: string): boolean;
 }
 
 // This call loads the native module object from the JSI.

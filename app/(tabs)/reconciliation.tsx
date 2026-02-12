@@ -22,11 +22,15 @@ export default function ReconciliationScreen() {
     permissions,
     transactions,
     pendingTransactions,
+    isSyncing,
+    lastSyncAt,
+    lastSyncError,
     lastError,
     startListening,
     stopListening,
     requestPermissions,
     refreshLocalTransactions,
+    syncPendingNow,
   } = useEquitySms();
 
   const [refreshing, setRefreshing] = React.useState(false);
@@ -98,6 +102,24 @@ export default function ReconciliationScreen() {
       Alert.alert('Error', error instanceof Error ? error.message : 'Unknown error');
     }
   };
+
+  const handleManualSync = async () => {
+    try {
+      await syncPendingNow();
+    } catch (error) {
+      Alert.alert('Sync Error', error instanceof Error ? error.message : 'Failed to sync pending transactions');
+    }
+  };
+
+  const syncStatusText = isSyncing
+    ? 'Syncing now...'
+    : pendingTransactions.length > 0
+    ? `Queued (${pendingTransactions.length}) — will sync when online`
+    : 'All synced';
+
+  const lastSyncText = lastSyncAt
+    ? new Date(lastSyncAt).toLocaleTimeString()
+    : 'Never';
 
   const renderTransaction = ({ item }: { item: TransactionData }) => (
     <View className="bg-white rounded-lg p-4 mb-3 shadow-sm border border-gray-100">
@@ -247,6 +269,34 @@ export default function ReconciliationScreen() {
 
       {/* Transactions List */}
       <View className="flex-1 p-4">
+        {/* Queue Sync Status */}
+        <View className="bg-white rounded-lg p-4 mb-3 shadow-sm border border-gray-100">
+          <View className="flex-row items-center justify-between mb-2">
+            <Text className="text-sm font-semibold text-gray-700">Queue Sync Status</Text>
+            <View className={`px-2 py-1 rounded ${isSyncing ? 'bg-blue-100' : pendingTransactions.length > 0 ? 'bg-yellow-100' : 'bg-green-100'}`}>
+              <Text className={`text-xs font-medium ${isSyncing ? 'text-blue-700' : pendingTransactions.length > 0 ? 'text-yellow-700' : 'text-green-700'}`}>
+                {isSyncing ? 'Syncing' : pendingTransactions.length > 0 ? 'Queued' : 'Synced'}
+              </Text>
+            </View>
+          </View>
+          <Text className="text-xs text-gray-600">{syncStatusText}</Text>
+          <Text className="text-xs text-gray-500 mt-1">Last sync: {lastSyncText}</Text>
+
+          {lastSyncError && (
+            <Text className="text-xs text-red-600 mt-2">Last sync error: {lastSyncError}</Text>
+          )}
+
+          <TouchableOpacity
+            onPress={handleManualSync}
+            disabled={isSyncing}
+            className={`mt-3 rounded-md py-2 ${isSyncing ? 'bg-gray-300' : 'bg-blue-500'}`}
+          >
+            <Text className="text-white text-center text-sm font-medium">
+              {isSyncing ? 'Syncing...' : 'Sync Now'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+
         <Text className="text-lg font-semibold text-gray-700 mb-3">
           Recent Transactions ({transactions.length})
         </Text>

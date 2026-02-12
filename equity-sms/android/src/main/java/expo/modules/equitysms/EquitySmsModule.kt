@@ -300,6 +300,12 @@ class EquitySmsModule : Module() {
             localStore.getPendingTransactions().map { it.toMap() }
         }
 
+        // Mark a local transaction as synced (moves from pending to synced)
+        Function("markLocalAsSynced") { transactionId: String ->
+            Log.d(TAG, "markLocalAsSynced called for: $transactionId")
+            localStore.markAsSynced(transactionId)
+        }
+
         // Mark transaction as reconciled
         AsyncFunction("markAsReconciled") { transactionId: String, promise: Promise ->
             Log.d(TAG, "markAsReconciled called for: $transactionId")

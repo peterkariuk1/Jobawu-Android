@@ -6,7 +6,7 @@ import EquitySmsModule, {
     TransactionData,
     TransactionSavedEvent,
 } from 'equity-sms';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, PermissionsAndroid, Platform } from 'react-native';
 import {
     getUnreconciledTransactions as fetchUnreconciled,
@@ -23,6 +23,12 @@ interface UseEquitySmsReturn {
   transactions: TransactionData[];
   /** Pending transactions not yet synced to Firestore */
   pendingTransactions: TransactionData[];
+  /** Whether a sync is currently running */
+  isSyncing: boolean;
+  /** Last sync attempt time (ms) */
+  lastSyncAt: number | null;
+  /** Last sync error (if any) */
+  lastSyncError: string | null;
   /** Last error that occurred */
   lastError: string | null;
   /** Start the SMS listener service (usually auto-started) */
@@ -37,6 +43,8 @@ interface UseEquitySmsReturn {
   getLocalTransactions: () => TransactionData[];
   /** Refresh local transactions from storage */
   refreshLocalTransactions: () => void;
+  /** Manually sync pending transactions now */
+  syncPendingNow: () => Promise<void>;
   /** Mark a transaction as reconciled */
   markAsReconciled: (transactionId: string) => Promise<boolean>;
   /** Parse an SMS message (for testing - does NOT save to Firebase) */
@@ -62,6 +70,10 @@ export function useEquitySms(): UseEquitySmsReturn {
   const [transactions, setTransactions] = useState<TransactionData[]>([]);
   const [pendingTransactions, setPendingTransactions] = useState<TransactionData[]>([]);
   const [lastError, setLastError] = useState<string | null>(null);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [lastSyncAt, setLastSyncAt] = useState<number | null>(null);
+  const [lastSyncError, setLastSyncError] = useState<string | null>(null);
+  const syncInFlightRef = useRef(false);
 
   // Load local transactions on mount
   const refreshLocalTransactions = useCallback(() => {
@@ -85,36 +97,59 @@ export function useEquitySms(): UseEquitySmsReturn {
     }
   }, [refreshLocalTransactions]);
 
+  const syncPendingNow = useCallback(async (): Promise<void> => {
+    if (Platform.OS !== 'android') return;
+    if (syncInFlightRef.current) return;
+
+    syncInFlightRef.current = true;
+    setIsSyncing(true);
+    setLastSyncError(null);
+
+    try {
+      const pending = EquitySmsModule.getPendingTransactions();
+      if (!pending || pending.length === 0) {
+        setLastSyncAt(Date.now());
+        return;
+      }
+
+      console.log(`[EquitySms] Found ${pending.length} pending local transactions — syncing to Firestore...`);
+      for (const txn of pending) {
+        const result = await saveTransactionToFirestore(txn);
+        if (result.success) {
+          console.log(`[EquitySms] ✓ Synced pending: ${result.id}`);
+          try {
+            const marked = EquitySmsModule.markLocalAsSynced(txn.id);
+            console.log(`[EquitySms] Local pending cleared: ${marked ? '✓' : '✗'} (${txn.id})`);
+          } catch (e) {
+            console.error('[EquitySms] Failed to mark local pending as synced:', e);
+          }
+        } else {
+          const message = result.error || 'Unknown Firestore sync error';
+          console.error(`[EquitySms] ✗ Failed to sync: ${message}`);
+          setLastSyncError(message);
+        }
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Sync pending to Firestore failed';
+      console.error('[EquitySms] Sync pending to Firestore failed:', error);
+      setLastSyncError(message);
+    } finally {
+      setLastSyncAt(Date.now());
+      refreshLocalTransactions();
+      setIsSyncing(false);
+      syncInFlightRef.current = false;
+    }
+  }, [refreshLocalTransactions]);
+
   // Sync any pending local transactions to Firestore on mount
   // Handles SMS received while app was closed (saved locally by native receiver)
   useEffect(() => {
     if (Platform.OS !== 'android') return;
 
-    const syncPendingToFirestore = async () => {
-      try {
-        const pending = EquitySmsModule.getPendingTransactions();
-        if (!pending || pending.length === 0) return;
-
-        console.log(`[EquitySms] Found ${pending.length} pending local transactions — syncing to Firestore...`);
-        for (const txn of pending) {
-          const result = await saveTransactionToFirestore(txn);
-          if (result.success) {
-            console.log(`[EquitySms] ✓ Synced pending: ${result.id}`);
-          } else {
-            console.error(`[EquitySms] ✗ Failed to sync: ${result.error}`);
-          }
-        }
-        // Refresh state after sync
-        refreshLocalTransactions();
-      } catch (error) {
-        console.error('[EquitySms] Sync pending to Firestore failed:', error);
-      }
-    };
-
     // Small delay to let native module initialize
-    const timer = setTimeout(syncPendingToFirestore, 2000);
+    const timer = setTimeout(syncPendingNow, 2000);
     return () => clearTimeout(timer);
-  }, []);
+  }, [syncPendingNow]);
 
   // Set up event listeners
   useEffect(() => {
@@ -138,9 +173,20 @@ export function useEquitySms(): UseEquitySmsReturn {
         const result = await saveTransactionToFirestore(event.transaction);
         if (result.success) {
           console.log('[EquitySms] ✓ Saved to Firestore:', result.id);
+          try {
+            const marked = EquitySmsModule.markLocalAsSynced(event.transaction.id);
+            console.log(`[EquitySms] Local pending cleared: ${marked ? '✓' : '✗'} (${event.transaction.id})`);
+          } catch (e) {
+            console.error('[EquitySms] Failed to mark local pending as synced:', e);
+          }
+          setLastSyncAt(Date.now());
+          setLastSyncError(null);
         } else {
           console.error('[EquitySms] ✗ Firestore save failed:', result.error);
           setLastError(`Firestore save failed: ${result.error}`);
+          if (result.error) {
+            setLastSyncError(result.error);
+          }
         }
 
         // Refresh pending count
@@ -408,6 +454,9 @@ export function useEquitySms(): UseEquitySmsReturn {
     permissions,
     transactions,
     pendingTransactions,
+    isSyncing,
+    lastSyncAt,
+    lastSyncError,
     lastError,
     startListening,
     stopListening,
@@ -415,6 +464,7 @@ export function useEquitySms(): UseEquitySmsReturn {
     getUnreconciledTransactions,
     getLocalTransactions,
     refreshLocalTransactions,
+    syncPendingNow,
     markAsReconciled,
     parseSms,
     testParseAndSave,

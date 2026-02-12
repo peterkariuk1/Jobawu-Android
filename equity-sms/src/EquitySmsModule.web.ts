@@ -58,6 +58,10 @@ class EquitySmsModule extends NativeModule<EquitySmsModuleEvents> {
   getPendingTransactions(): TransactionData[] {
     return [];
   }
+
+  markLocalAsSynced(_transactionId: string): boolean {
+    return false;
+  }
 }
 
 export default registerWebModule(EquitySmsModule, 'EquitySmsModule');
