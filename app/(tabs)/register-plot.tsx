@@ -3,7 +3,7 @@
  * Form to register a new plot with house numbers and their details
  */
 import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
@@ -17,9 +17,11 @@ import {
     View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { PageHeader } from '../../components/page-header';
 import { Sidebar } from '../../components/sidebar';
 import { borderRadius, colors, shadows, spacing, typography } from '../../constants/design';
 import { db } from '../../firebaseConfig';
+import { useThemedColors } from '../../hooks/use-themed-colors';
 
 interface HouseUnit {
   id: string;
@@ -30,6 +32,7 @@ interface HouseUnit {
 }
 
 export default function RegisterPlot() {
+  const themedColors = useThemedColors();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   
@@ -150,24 +153,127 @@ export default function RegisterPlot() {
     return `KES ${amount.toLocaleString('en-KE', { minimumFractionDigits: 0 })}`;
   };
 
+  // Dynamic styles with theme support
+  const dynamicStyles = useMemo(() => StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: themedColors.background.secondary,
+    },
+    input: {
+      backgroundColor: themedColors.background.primary,
+      borderWidth: 1,
+      borderColor: themedColors.border.main,
+      borderRadius: borderRadius.md,
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.md,
+      fontSize: typography.fontSize.base,
+      color: themedColors.text.primary,
+    },
+    inputSmall: {
+      backgroundColor: themedColors.background.primary,
+      borderWidth: 1,
+      borderColor: themedColors.border.main,
+      borderRadius: borderRadius.sm,
+      paddingHorizontal: spacing.sm,
+      paddingVertical: spacing.sm,
+      fontSize: typography.fontSize.sm,
+      color: themedColors.text.primary,
+    },
+    sectionTitle: {
+      fontSize: typography.fontSize.md,
+      fontWeight: typography.fontWeight.semibold as any,
+      color: themedColors.text.primary,
+      marginBottom: spacing.md,
+    },
+    label: {
+      fontSize: typography.fontSize.sm,
+      fontWeight: typography.fontWeight.medium as any,
+      color: themedColors.text.secondary,
+      marginBottom: spacing.xs,
+    },
+    labelSmall: {
+      fontSize: typography.fontSize.xs,
+      fontWeight: typography.fontWeight.medium as any,
+      color: themedColors.text.secondary,
+      marginBottom: spacing.xs,
+    },
+    summaryCard: {
+      flex: 1,
+      backgroundColor: themedColors.background.card,
+      borderRadius: borderRadius.md,
+      padding: spacing.base,
+      alignItems: 'center' as const,
+      ...shadows.sm,
+    },
+    summaryLabel: {
+      fontSize: typography.fontSize.xs,
+      fontWeight: typography.fontWeight.medium as any,
+      color: themedColors.text.tertiary,
+      marginBottom: spacing.xs,
+    },
+    emptyUnits: {
+      backgroundColor: themedColors.background.card,
+      borderRadius: borderRadius.md,
+      padding: spacing.xl,
+      alignItems: 'center' as const,
+      borderWidth: 1,
+      borderStyle: 'dashed' as const,
+      borderColor: themedColors.border.main,
+    },
+    emptyUnitsText: {
+      fontSize: typography.fontSize.sm,
+      color: themedColors.text.secondary,
+      textAlign: 'center' as const,
+    },
+    houseCard: {
+      backgroundColor: themedColors.background.card,
+      borderRadius: borderRadius.lg,
+      padding: spacing.base,
+      marginBottom: spacing.md,
+      ...shadows.sm,
+    },
+    houseHeader: {
+      flexDirection: 'row' as const,
+      justifyContent: 'space-between' as const,
+      alignItems: 'center' as const,
+      marginBottom: spacing.md,
+      paddingBottom: spacing.sm,
+      borderBottomWidth: 1,
+      borderBottomColor: themedColors.border.light,
+    },
+    unitTotal: {
+      flexDirection: 'row' as const,
+      justifyContent: 'space-between' as const,
+      alignItems: 'center' as const,
+      marginTop: spacing.sm,
+      paddingTop: spacing.sm,
+      borderTopWidth: 1,
+      borderTopColor: themedColors.border.light,
+    },
+    unitTotalLabel: {
+      fontSize: typography.fontSize.xs,
+      fontWeight: typography.fontWeight.medium as any,
+      color: themedColors.text.tertiary,
+    },
+    unitTotalValue: {
+      fontSize: typography.fontSize.base,
+      fontWeight: typography.fontWeight.semibold as any,
+      color: themedColors.text.primary,
+    },
+    footer: {
+      padding: spacing.base,
+      backgroundColor: themedColors.background.primary,
+      borderTopWidth: 1,
+      borderTopColor: themedColors.border.main,
+    },
+  }), [themedColors]);
+
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity
-          style={styles.menuButton}
-          onPress={() => setSidebarOpen(true)}
-          activeOpacity={0.7}
-        >
-          <View style={styles.menuIcon}>
-            <View style={styles.menuLine} />
-            <View style={styles.menuLine} />
-            <View style={styles.menuLine} />
-          </View>
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Register Plot</Text>
-        <View style={styles.headerSpacer} />
-      </View>
+    <SafeAreaView style={dynamicStyles.container}>
+      <PageHeader
+        title="Register Plot"
+        onMenuPress={() => setSidebarOpen(true)}
+      />
 
       <KeyboardAvoidingView 
         style={styles.keyboardView}
@@ -183,25 +289,25 @@ export default function RegisterPlot() {
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Plot Details</Text>
             <View style={styles.inputGroup}>
-              <Text style={styles.label}>Plot Name *</Text>
+              <Text style={dynamicStyles.label}>Plot Name *</Text>
               <TextInput
-                style={styles.input}
+                style={dynamicStyles.input}
                 value={plotName}
                 onChangeText={setPlotName}
                 placeholder="e.g., Sunshine Apartments"
-                placeholderTextColor={colors.neutral[400]}
+                placeholderTextColor={themedColors.text.placeholder}
               />
             </View>
           </View>
 
           {/* Summary Cards */}
           <View style={styles.summaryRow}>
-            <View style={styles.summaryCard}>
-              <Text style={styles.summaryLabel}>No. of Units</Text>
+            <View style={dynamicStyles.summaryCard}>
+              <Text style={dynamicStyles.summaryLabel}>No. of Units</Text>
               <Text style={styles.summaryValue}>{numberOfUnits}</Text>
             </View>
-            <View style={styles.summaryCard}>
-              <Text style={styles.summaryLabel}>Total Expected</Text>
+            <View style={dynamicStyles.summaryCard}>
+              <Text style={dynamicStyles.summaryLabel}>Total Expected</Text>
               <Text style={styles.summaryValueSmall}>
                 {formatCurrency(totalRentAndGarbageExpected)}
               </Text>
@@ -211,7 +317,7 @@ export default function RegisterPlot() {
           {/* House Units */}
           <View style={styles.section}>
             <View style={styles.sectionHeaderRow}>
-              <Text style={styles.sectionTitle}>House Units</Text>
+              <Text style={dynamicStyles.sectionTitle}>House Units</Text>
               <TouchableOpacity
                 style={styles.addButton}
                 onPress={addHouseUnit}
@@ -222,15 +328,15 @@ export default function RegisterPlot() {
             </View>
 
             {houses.length === 0 ? (
-              <View style={styles.emptyUnits}>
-                <Text style={styles.emptyUnitsText}>
+              <View style={dynamicStyles.emptyUnits}>
+                <Text style={dynamicStyles.emptyUnitsText}>
                   No house units added yet. Tap "Add Unit" to start.
                 </Text>
               </View>
             ) : (
               houses.map((house, index) => (
-                <View key={house.id} style={styles.houseCard}>
-                  <View style={styles.houseHeader}>
+                <View key={house.id} style={dynamicStyles.houseCard}>
+                  <View style={dynamicStyles.houseHeader}>
                     <Text style={styles.houseNumber}>Unit {index + 1}</Text>
                     <TouchableOpacity
                       onPress={() => removeHouseUnit(house.id)}
@@ -242,23 +348,23 @@ export default function RegisterPlot() {
 
                   <View style={styles.houseInputRow}>
                     <View style={[styles.inputGroup, { flex: 1 }]}>
-                      <Text style={styles.labelSmall}>House No. *</Text>
+                      <Text style={dynamicStyles.labelSmall}>House No. *</Text>
                       <TextInput
-                        style={styles.inputSmall}
+                        style={dynamicStyles.inputSmall}
                         value={house.houseNo}
                         onChangeText={(value) => updateHouseUnit(house.id, 'houseNo', value)}
                         placeholder="A1"
-                        placeholderTextColor={colors.neutral[400]}
+                        placeholderTextColor={themedColors.text.placeholder}
                       />
                     </View>
                     <View style={[styles.inputGroup, { flex: 1.5 }]}>
-                      <Text style={styles.labelSmall}>Base Rent (KES) *</Text>
+                      <Text style={dynamicStyles.labelSmall}>Base Rent (KES) *</Text>
                       <TextInput
-                        style={styles.inputSmall}
+                        style={dynamicStyles.inputSmall}
                         value={house.baseRent ? house.baseRent.toString() : ''}
                         onChangeText={(value) => updateHouseUnit(house.id, 'baseRent', parseInt(value) || 0)}
                         placeholder="10000"
-                        placeholderTextColor={colors.neutral[400]}
+                        placeholderTextColor={themedColors.text.placeholder}
                         keyboardType="numeric"
                       />
                     </View>
@@ -266,33 +372,33 @@ export default function RegisterPlot() {
 
                   <View style={styles.houseInputRow}>
                     <View style={[styles.inputGroup, { flex: 1 }]}>
-                      <Text style={styles.labelSmall}>Garbage Fees (KES)</Text>
+                      <Text style={dynamicStyles.labelSmall}>Garbage Fees (KES)</Text>
                       <TextInput
-                        style={styles.inputSmall}
+                        style={dynamicStyles.inputSmall}
                         value={house.garbageFees ? house.garbageFees.toString() : ''}
                         onChangeText={(value) => updateHouseUnit(house.id, 'garbageFees', parseInt(value) || 0)}
                         placeholder="500"
-                        placeholderTextColor={colors.neutral[400]}
+                        placeholderTextColor={themedColors.text.placeholder}
                         keyboardType="numeric"
                       />
                     </View>
                     <View style={[styles.inputGroup, { flex: 1 }]}>
-                      <Text style={styles.labelSmall}>Prev. Water Units</Text>
+                      <Text style={dynamicStyles.labelSmall}>Prev. Water Units</Text>
                       <TextInput
-                        style={styles.inputSmall}
+                        style={dynamicStyles.inputSmall}
                         value={house.previousWaterUnits ? house.previousWaterUnits.toString() : ''}
                         onChangeText={(value) => updateHouseUnit(house.id, 'previousWaterUnits', parseInt(value) || 0)}
                         placeholder="0"
-                        placeholderTextColor={colors.neutral[400]}
+                        placeholderTextColor={themedColors.text.placeholder}
                         keyboardType="numeric"
                       />
                     </View>
                   </View>
 
                   {/* Unit Total */}
-                  <View style={styles.unitTotal}>
-                    <Text style={styles.unitTotalLabel}>Unit Total:</Text>
-                    <Text style={styles.unitTotalValue}>
+                  <View style={dynamicStyles.unitTotal}>
+                    <Text style={dynamicStyles.unitTotalLabel}>Unit Total:</Text>
+                    <Text style={dynamicStyles.unitTotalValue}>
                       {formatCurrency((house.baseRent || 0) + (house.garbageFees || 0))}
                     </Text>
                   </View>
@@ -306,7 +412,7 @@ export default function RegisterPlot() {
 
         {/* Save Button */}
         {houses.length > 0 && (
-          <View style={styles.footer}>
+          <View style={dynamicStyles.footer}>
             <TouchableOpacity
               style={[styles.saveButton, loading && styles.saveButtonDisabled]}
               onPress={savePlot}

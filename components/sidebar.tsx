@@ -3,7 +3,7 @@
  * Professional slide-out drawer with clean navigation
  */
 import { usePathname, useRouter } from 'expo-router';
-import React from 'react';
+import React, { useMemo } from 'react';
 import {
     Dimensions,
     Pressable,
@@ -13,6 +13,8 @@ import {
     View,
 } from 'react-native';
 import { colors, shadows, spacing, typography } from '../constants/design';
+import { useTheme } from '../hooks/use-theme';
+import { useThemedColors } from '../hooks/use-themed-colors';
 
 interface SidebarProps {
   isOpen: boolean;
@@ -29,6 +31,7 @@ const navItems: NavItem[] = [
   { label: 'Dashboard', route: '/(tabs)', icon: '📊' },
   { label: 'Register Plot', route: '/(tabs)/register-plot', icon: '🏠' },
   { label: 'Edit Plot', route: '/(tabs)/edit-plot', icon: '✏️' },
+  { label: 'Tenants', route: '/(tabs)/tenants', icon: '👥' },
   { label: 'Payments', route: '/(tabs)/payments', icon: '💳' },
   { label: 'Receipts', route: '/(tabs)/receipts', icon: '🧾' },
   { label: 'Reconciliation', route: '/(tabs)/reconciliation', icon: '🔄' },
@@ -40,6 +43,67 @@ const SIDEBAR_WIDTH = SCREEN_WIDTH * 0.75;
 export function Sidebar({ isOpen, onClose }: SidebarProps) {
   const router = useRouter();
   const pathname = usePathname();
+  const { theme, isDark, toggleTheme } = useTheme();
+  const themedColors = useThemedColors();
+
+  const dynamicStyles = useMemo(() => StyleSheet.create({
+    sidebar: {
+      width: SIDEBAR_WIDTH,
+      maxWidth: 320,
+      backgroundColor: themedColors.background.primary,
+      height: '100%',
+      ...shadows.lg,
+    },
+    navItem: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingVertical: spacing.md,
+      paddingHorizontal: spacing.base,
+      borderRadius: 8,
+      marginBottom: spacing.xs,
+    },
+    navItemActive: {
+      backgroundColor: themedColors.primary[50],
+    },
+    navLabel: {
+      fontSize: typography.fontSize.base,
+      fontWeight: typography.fontWeight.medium,
+      color: themedColors.text.secondary,
+    },
+    navLabelActive: {
+      color: themedColors.primary[600],
+      fontWeight: typography.fontWeight.semibold,
+    },
+    footer: {
+      paddingVertical: spacing.lg,
+      paddingHorizontal: spacing.xl,
+      borderTopWidth: 1,
+      borderTopColor: themedColors.border.main,
+    },
+    version: {
+      fontSize: typography.fontSize.xs,
+      color: themedColors.text.tertiary,
+      marginBottom: spacing.md,
+    },
+    themeToggle: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingVertical: spacing.sm,
+      paddingHorizontal: spacing.base,
+      backgroundColor: themedColors.background.tertiary,
+      borderRadius: 8,
+      marginTop: spacing.sm,
+    },
+    themeText: {
+      fontSize: typography.fontSize.sm,
+      color: themedColors.text.primary,
+      fontWeight: typography.fontWeight.medium,
+    },
+    themeIcon: {
+      fontSize: 20,
+    },
+  }), [themedColors]);
 
   const handleNavigation = (route: string) => {
     onClose();
@@ -57,7 +121,7 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
       <Pressable style={styles.backdrop} onPress={onClose} />
 
       {/* Sidebar Panel */}
-      <View style={styles.sidebar}>
+      <View style={dynamicStyles.sidebar}>
         {/* Header */}
         <View style={styles.header}>
           <Text style={styles.brandName}>Jobawu</Text>
@@ -74,13 +138,13 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
             return (
               <TouchableOpacity
                 key={item.route}
-                style={[styles.navItem, isActive && styles.navItemActive]}
+                style={[dynamicStyles.navItem, isActive && dynamicStyles.navItemActive]}
                 onPress={() => handleNavigation(item.route)}
                 activeOpacity={0.7}
               >
                 <Text style={styles.navIcon}>{item.icon}</Text>
                 <Text
-                  style={[styles.navLabel, isActive && styles.navLabelActive]}
+                  style={[dynamicStyles.navLabel, isActive && dynamicStyles.navLabelActive]}
                 >
                   {item.label}
                 </Text>
@@ -90,8 +154,20 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
         </View>
 
         {/* Footer */}
-        <View style={styles.footer}>
-          <Text style={styles.version}>Version 1.0.0</Text>
+        <View style={dynamicStyles.footer}>
+          <Text style={dynamicStyles.version}>Version 1.0.0</Text>
+          <TouchableOpacity
+            style={dynamicStyles.themeToggle}
+            onPress={toggleTheme}
+            activeOpacity={0.7}
+          >
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <Text style={dynamicStyles.themeIcon}>{isDark ? '🌙' : '☀️'}</Text>
+              <Text style={[dynamicStyles.themeText, { marginLeft: spacing.sm }]}>
+                {isDark ? 'Dark' : 'Light'} Mode
+              </Text>
+            </View>
+          </TouchableOpacity>
         </View>
       </View>
     </View>
@@ -116,13 +192,7 @@ const styles = StyleSheet.create({
     bottom: 0,
     backgroundColor: 'rgba(0, 0, 0, 0.4)',
   },
-  sidebar: {
-    width: SIDEBAR_WIDTH,
-    maxWidth: 320,
-    backgroundColor: colors.background.primary,
-    height: '100%',
-    ...shadows.lg,
-  },
+
   header: {
     paddingTop: 60,
     paddingHorizontal: spacing.xl,
@@ -145,40 +215,13 @@ const styles = StyleSheet.create({
     paddingTop: spacing.lg,
     paddingHorizontal: spacing.md,
   },
-  navItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.base,
-    borderRadius: 8,
-    marginBottom: spacing.xs,
-  },
-  navItemActive: {
-    backgroundColor: colors.primary[50],
-  },
+
   navIcon: {
     fontSize: 20,
     marginRight: spacing.md,
     width: 28,
     textAlign: 'center',
   },
-  navLabel: {
-    fontSize: typography.fontSize.base,
-    fontWeight: typography.fontWeight.medium,
-    color: colors.neutral[700],
-  },
-  navLabelActive: {
-    color: colors.primary[600],
-    fontWeight: typography.fontWeight.semibold,
-  },
-  footer: {
-    paddingVertical: spacing.lg,
-    paddingHorizontal: spacing.xl,
-    borderTopWidth: 1,
-    borderTopColor: colors.neutral[200],
-  },
-  version: {
-    fontSize: typography.fontSize.xs,
-    color: colors.neutral[400],
-  },
+
+
 });

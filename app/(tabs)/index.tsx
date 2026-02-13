@@ -3,20 +3,21 @@
  * Displays recent payments, totals, and key metrics
  */
 import { collection, getDocs, limit, orderBy, query, Timestamp, where } from 'firebase/firestore';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
     ActivityIndicator,
     RefreshControl,
     ScrollView,
     StyleSheet,
     Text,
-    TouchableOpacity,
-    View,
+    View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { PageHeader } from '../../components/page-header';
 import { Sidebar } from '../../components/sidebar';
 import { borderRadius, colors, shadows, spacing, typography } from '../../constants/design';
 import { db } from '../../firebaseConfig.ts';
+import { useThemedColors } from '../../hooks/use-themed-colors';
 
 interface Payment {
   id: string;
@@ -35,6 +36,7 @@ interface DashboardMetrics {
 }
 
 export default function Dashboard() {
+  const themedColors = useThemedColors();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [recentPayments, setRecentPayments] = useState<Payment[]>([]);
   const [metrics, setMetrics] = useState<DashboardMetrics>({
@@ -121,29 +123,95 @@ export default function Dashboard() {
     });
   };
 
+  // Dynamic styles with theme support
+  const dynamicStyles = useMemo(() => StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: themedColors.background.secondary,
+    },
+    loadingContainer: {
+      flex: 1,
+      justifyContent: 'center' as const,
+      alignItems: 'center' as const,
+    },
+    loadingText: {
+      marginTop: spacing.md,
+      fontSize: typography.fontSize.base,
+      color: themedColors.text.secondary,
+    },
+    metricCard: {
+      backgroundColor: themedColors.background.card,
+      borderRadius: borderRadius.lg,
+      padding: spacing.lg,
+      ...shadows.sm,
+    },
+    metricLabelSmall: {
+      fontSize: typography.fontSize.sm,
+      fontWeight: typography.fontWeight.medium as any,
+      color: themedColors.text.tertiary,
+      marginBottom: spacing.xs,
+    },
+    metricValue: {
+      fontSize: typography.fontSize.xl,
+      fontWeight: typography.fontWeight.bold as any,
+      color: themedColors.text.primary,
+      letterSpacing: -0.3,
+    },
+    sectionTitle: {
+      fontSize: typography.fontSize.md,
+      fontWeight: typography.fontWeight.semibold as any,
+      color: themedColors.text.primary,
+    },
+    paymentCard: {
+      flexDirection: 'row' as const,
+      justifyContent: 'space-between' as const,
+      alignItems: 'center' as const,
+      backgroundColor: themedColors.background.card,
+      borderRadius: borderRadius.md,
+      padding: spacing.base,
+      marginBottom: spacing.sm,
+      ...shadows.sm,
+    },
+    paymentTenant: {
+      fontSize: typography.fontSize.base,
+      fontWeight: typography.fontWeight.medium as any,
+      color: themedColors.text.primary,
+    },
+    paymentPlot: {
+      fontSize: typography.fontSize.sm,
+      color: themedColors.text.secondary,
+      marginTop: 2,
+    },
+    paymentDate: {
+      fontSize: typography.fontSize.xs,
+      color: themedColors.text.tertiary,
+      marginTop: 2,
+    },
+    emptyTitle: {
+      fontSize: typography.fontSize.md,
+      fontWeight: typography.fontWeight.medium as any,
+      color: themedColors.text.secondary,
+      marginBottom: spacing.xs,
+    },
+    emptySubtext: {
+      fontSize: typography.fontSize.sm,
+      color: themedColors.text.tertiary,
+      textAlign: 'center' as const,
+      maxWidth: 240,
+    },
+  }), [themedColors]);
+
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity
-          style={styles.menuButton}
-          onPress={() => setSidebarOpen(true)}
-          activeOpacity={0.7}
-        >
-          <View style={styles.menuIcon}>
-            <View style={styles.menuLine} />
-            <View style={styles.menuLine} />
-            <View style={styles.menuLine} />
-          </View>
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Dashboard</Text>
-        <View style={styles.headerSpacer} />
-      </View>
+    <SafeAreaView style={dynamicStyles.container}>
+      <PageHeader
+        title="Dashboard"
+        onMenuPress={() => setSidebarOpen(true)}
+      />
 
       {loading ? (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={colors.primary[500]} />
-          <Text style={styles.loadingText}>Loading dashboard...</Text>
+        <View style={dynamicStyles.loadingContainer}>
+          <ActivityIndicator size="large" color={themedColors.primary[500]} />
+          <Text style={dynamicStyles.loadingText}>Loading dashboard...</Text>
         </View>
       ) : (
         <ScrollView
@@ -154,7 +222,7 @@ export default function Dashboard() {
             <RefreshControl
               refreshing={refreshing}
               onRefresh={onRefresh}
-              tintColor={colors.primary[500]}
+              tintColor={themedColors.primary[500]}
             />
           }
         >
@@ -172,15 +240,15 @@ export default function Dashboard() {
           </View>
 
           <View style={styles.metricsRow}>
-            <View style={[styles.metricCard, styles.metricCardHalf]}>
-              <Text style={styles.metricLabelSmall}>Total Due</Text>
-              <Text style={styles.metricValue}>
+            <View style={[dynamicStyles.metricCard, { flex: 1 }]}>
+              <Text style={dynamicStyles.metricLabelSmall}>Total Due</Text>
+              <Text style={dynamicStyles.metricValue}>
                 {formatCurrency(metrics.totalDue)}
               </Text>
             </View>
-            <View style={[styles.metricCard, styles.metricCardHalf]}>
-              <Text style={styles.metricLabelSmall}>Outstanding</Text>
-              <Text style={[styles.metricValue, styles.metricValueWarning]}>
+            <View style={[dynamicStyles.metricCard, { flex: 1 }]}>
+              <Text style={dynamicStyles.metricLabelSmall}>Outstanding</Text>
+              <Text style={[dynamicStyles.metricValue, styles.metricValueWarning]}>
                 {formatCurrency(Math.max(0, metrics.totalDue - metrics.totalCollected))}
               </Text>
             </View>
@@ -188,23 +256,23 @@ export default function Dashboard() {
 
           {/* Recent Payments */}
           <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Recent Payments</Text>
+            <Text style={dynamicStyles.sectionTitle}>Recent Payments</Text>
           </View>
 
           {recentPayments.length === 0 ? (
             <View style={styles.emptyState}>
               <Text style={styles.emptyIcon}>📭</Text>
-              <Text style={styles.emptyTitle}>No payments yet</Text>
-              <Text style={styles.emptySubtext}>
+              <Text style={dynamicStyles.emptyTitle}>No payments yet</Text>
+              <Text style={dynamicStyles.emptySubtext}>
                 Payments will appear here once tenants start paying
               </Text>
             </View>
           ) : (
             recentPayments.map((payment) => (
-              <View key={payment.id} style={styles.paymentCard}>
+              <View key={payment.id} style={dynamicStyles.paymentCard}>
                 <View style={styles.paymentLeft}>
-                  <Text style={styles.paymentTenant}>{payment.tenantName}</Text>
-                  <Text style={styles.paymentPlot}>
+                  <Text style={dynamicStyles.paymentTenant}>{payment.tenantName}</Text>
+                  <Text style={dynamicStyles.paymentPlot}>
                     {payment.plotName} • {payment.houseNo}
                   </Text>
                 </View>
@@ -212,7 +280,7 @@ export default function Dashboard() {
                   <Text style={styles.paymentAmount}>
                     {formatCurrency(payment.amount)}
                   </Text>
-                  <Text style={styles.paymentDate}>{formatDate(payment.date)}</Text>
+                  <Text style={dynamicStyles.paymentDate}>{formatDate(payment.date)}</Text>
                 </View>
               </View>
             ))

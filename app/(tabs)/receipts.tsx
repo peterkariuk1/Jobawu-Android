@@ -1,35 +1,38 @@
 /**
  * Receipts Page - Placeholder
  */
-import React, { useState } from 'react';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import React, { useMemo, useState } from 'react';
+import { StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { PageHeader } from '../../components/page-header';
 import { Sidebar } from '../../components/sidebar';
-import { colors, spacing, typography } from '../../constants/design';
+import { typography } from '../../constants/design';
+import { useThemedColors } from '../../hooks/use-themed-colors';
 
 export default function Receipts() {
+  const themedColors = useThemedColors();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
+  const dynamicStyles = useMemo(() => StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: themedColors.background.secondary,
+    },
+    placeholder: {
+      fontSize: typography.fontSize.md,
+      color: themedColors.text.secondary,
+    },
+  }), [themedColors]);
+
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
-      <View style={styles.header}>
-        <TouchableOpacity
-          style={styles.menuButton}
-          onPress={() => setSidebarOpen(true)}
-          activeOpacity={0.7}
-        >
-          <View style={styles.menuIcon}>
-            <View style={styles.menuLine} />
-            <View style={styles.menuLine} />
-            <View style={styles.menuLine} />
-          </View>
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Receipts</Text>
-        <View style={styles.headerSpacer} />
-      </View>
+    <SafeAreaView style={dynamicStyles.container} edges={['top']}>
+      <PageHeader 
+        title="Receipts" 
+        onMenuPress={() => setSidebarOpen(true)} 
+      />
 
       <View style={styles.content}>
-        <Text style={styles.placeholder}>Receipts - Coming Soon</Text>
+        <Text style={dynamicStyles.placeholder}>Receipts - Coming Soon</Text>
       </View>
 
       <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
@@ -38,51 +41,9 @@ export default function Receipts() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.background.secondary,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: spacing.base,
-    paddingVertical: spacing.md,
-    backgroundColor: colors.background.primary,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.neutral[200],
-  },
-  menuButton: {
-    padding: spacing.sm,
-    marginLeft: -spacing.sm,
-  },
-  menuIcon: {
-    width: 24,
-    height: 18,
-    justifyContent: 'space-between',
-  },
-  menuLine: {
-    width: 24,
-    height: 2,
-    backgroundColor: colors.neutral[700],
-    borderRadius: 1,
-  },
-  headerTitle: {
-    fontSize: typography.fontSize.lg,
-    fontWeight: typography.fontWeight.semibold,
-    color: colors.neutral[900],
-    letterSpacing: -0.3,
-  },
-  headerSpacer: {
-    width: 40,
-  },
   content: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  placeholder: {
-    fontSize: typography.fontSize.md,
-    color: colors.neutral[500],
   },
 });
