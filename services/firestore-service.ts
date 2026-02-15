@@ -10,6 +10,7 @@ import {
     getDoc,
     getDocs,
     limit,
+    onSnapshot,
     orderBy,
     query,
     serverTimestamp,
@@ -400,5 +401,440 @@ export async function updateTenantInUnit(
     const msg = error instanceof Error ? error.message : 'Unknown error';
     console.error('[FirestoreService] ✗ Update tenant failed:', msg);
     return { success: false, error: msg };
+  }
+}
+
+// ============================================================
+// Payment / Billing
+// ============================================================
+
+const PAYMENTS_COLLECTION = 'payments';
+
+export interface PaymentRecord {
+  id?: string;
+  plotId: string;
+  plotName: string;
+  houseNo: string;
+  name: string;           // tenant name
+  tenantPhone: string;
+  month: number;           // 1-12
+  year: number;
+  baseRent: number;
+  garbageFees: number;
+  previousWaterUnits: number;
+  currentWaterUnits: number;
+  waterBill: number;       // (current - previous) * 22
+  total_amount: number;    // baseRent + garbageFees + waterBill - carryForward
+  paid: boolean;
+  bank_paid: number;
+  cash_paid: number;
+  balance: number;         // total_amount - (bank_paid + cash_paid); negative = overpaid
+  carryForward: number;    // overpayment from previous month
+  month_paid: string;      // e.g. "February 2026"
+  trans_id: string;
+  time: any;
+  createdAt?: any;
+  updatedAt?: any;
+}
+
+/**
+ * Get all payments for a specific plot and month/year
+ */
+export async function getPaymentsForPlotMonth(
+  plotId: string,
+  month: number,
+  year: number
+): Promise<PaymentRecord[]> {
+  try {
+    const q = query(
+      collection(db, PAYMENTS_COLLECTION),
+      where('plotId', '==', plotId),
+      where('month', '==', month),
+      where('year', '==', year)
+    );
+    const snapshot = await getDocs(q);
+    return snapshot.docs.map(d => ({ id: d.id, ...d.data() } as PaymentRecord));
+  } catch (error) {
+    console.error('[FirestoreService] Failed to get payments for plot month:', error);
+    return [];
+  }
+}
+
+/**
+ * Get all payments across all plots for a given month/year
+ */
+export async function getAllPaymentsForMonth(
+  month: number,
+  year: number
+): Promise<PaymentRecord[]> {
+  try {
+    const q = query(
+      collection(db, PAYMENTS_COLLECTION),
+      where('month', '==', month),
+      where('year', '==', year)
+    );
+    const snapshot = await getDocs(q);
+    return snapshot.docs.map(d => ({ id: d.id, ...d.data() } as PaymentRecord));
+  } catch (error) {
+    console.error('[FirestoreService] Failed to get all payments for month:', error);
+    return [];
+  }
+}
+
+/**
+ * Listen in real-time to all payments for a given month/year.
+ * The callback fires on every change (add/modify/remove) so the UI can
+ * automatically reflect newly-paid or updated bills.
+ *
+ * Returns an unsubscribe function.
+ */
+export function listenToPaymentsForMonth(
+  month: number,
+  year: number,
+  callback: (payments: PaymentRecord[]) => void
+): () => void {
+  const q = query(
+    collection(db, PAYMENTS_COLLECTION),
+    where('month', '==', month),
+    where('year', '==', year)
+  );
+
+  const unsubscribe = onSnapshot(q, (snapshot: any) => {
+    const payments = snapshot.docs.map((d: any) => ({ id: d.id, ...d.data() } as PaymentRecord));
+    callback(payments);
+  }, (error: any) => {
+    console.error('[FirestoreService] Payments listener error:', error);
+  });
+
+  return unsubscribe;
+}
+
+/**
+ * Create a new bill (payment doc with paid=false).
+ * Uses composite key plotId_houseNo_month_year for deduplication.
+ */
+export async function createBill(
+  data: Omit<PaymentRecord, 'id'>
+): Promise<{ success: boolean; id: string; error?: string }> {
+  try {
+    const docId = `${data.plotId}_${data.houseNo}_${data.month}_${data.year}`;
+    const docRef = doc(db, PAYMENTS_COLLECTION, docId);
+
+    // Prevent duplicates
+    const existing = await getDoc(docRef);
+    if (existing.exists()) {
+      return { success: false, id: docId, error: 'Bill already exists for this unit and month' };
+    }
+
+    await setDoc(docRef, {
+      ...data,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+
+    console.log('[FirestoreService] ✓ Bill created:', docId);
+    return { success: true, id: docId };
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : 'Unknown error';
+    console.error('[FirestoreService] ✗ Create bill failed:', msg);
+    return { success: false, id: '', error: msg };
+  }
+}
+
+/**
+ * Update a payment record (e.g. mark as paid, update amounts)
+ */
+export async function updatePaymentRecord(
+  paymentId: string,
+  updates: Partial<PaymentRecord>
+): Promise<boolean> {
+  try {
+    const docRef = doc(db, PAYMENTS_COLLECTION, paymentId);
+    await updateDoc(docRef, {
+      ...updates,
+      updatedAt: serverTimestamp(),
+    });
+    console.log('[FirestoreService] ✓ Payment updated:', paymentId);
+    return true;
+  } catch (error) {
+    console.error('[FirestoreService] ✗ Update payment failed:', error);
+    return false;
+  }
+}
+
+/**
+ * After billing, update the house unit's water readings on the plot doc
+ * so the next month uses the new "previous" reading.
+ */
+export async function updateHouseWaterUnits(
+  plotId: string,
+  houseNo: string,
+  newCurrentWaterUnits: number
+): Promise<boolean> {
+  try {
+    const plotDoc = await getDoc(doc(db, PLOTS_COLLECTION, plotId));
+    if (!plotDoc.exists()) return false;
+
+    const plot = plotDoc.data() as PlotRecord;
+    const updatedHouses = plot.houses.map(house => {
+      if (house.houseNo === houseNo) {
+        return {
+          ...house,
+          previousWaterUnits: newCurrentWaterUnits,
+          currentWaterUnits: newCurrentWaterUnits,
+        };
+      }
+      return house;
+    });
+
+    await updateDoc(doc(db, PLOTS_COLLECTION, plotId), {
+      houses: updatedHouses,
+      updatedAt: serverTimestamp(),
+    });
+
+    console.log('[FirestoreService] ✓ Water units updated for', houseNo, 'in plot', plotId);
+    return true;
+  } catch (error) {
+    console.error('[FirestoreService] ✗ Update water units failed:', error);
+    return false;
+  }
+}
+
+/**
+ * Look up the previous month's payment for a tenant to find carry-forward credit.
+ * Returns the absolute overpayment amount (positive number) or 0.
+ */
+export async function getCarryForward(
+  plotId: string,
+  houseNo: string,
+  month: number,
+  year: number
+): Promise<number> {
+  try {
+    const prevMonth = month === 1 ? 12 : month - 1;
+    const prevYear = month === 1 ? year - 1 : year;
+
+    const docId = `${plotId}_${houseNo}_${prevMonth}_${prevYear}`;
+    const docRef = doc(db, PAYMENTS_COLLECTION, docId);
+    const snap = await getDoc(docRef);
+
+    if (snap.exists()) {
+      const data = snap.data() as PaymentRecord;
+      if (data.balance < 0) {
+        return Math.abs(data.balance); // overpayment is a positive credit
+      }
+    }
+    return 0;
+  } catch (error) {
+    console.error('[FirestoreService] Failed to get carry forward:', error);
+    return 0;
+  }
+}
+
+// ============================================================
+// Real-time transaction listener & auto-reconciliation
+// ============================================================
+
+/**
+ * Listen in real-time to the transactions collection.
+ * Returns an unsubscribe function.
+ *
+ * The callback receives all new / changed transactions so the consumer
+ * can reconcile them against existing bills.
+ */
+export function listenToTransactions(
+  callback: (transactions: TransactionRecord[]) => void
+): () => void {
+  const q = query(
+    collection(db, TRANSACTIONS_COLLECTION),
+    where('reconciled', '==', false),
+    orderBy('createdAt', 'desc'),
+    limit(100)
+  );
+
+  const unsubscribe = onSnapshot(q, (snapshot: any) => {
+    const txns = snapshot.docs.map((d: any) => ({ id: d.id, ...d.data() } as TransactionRecord));
+    callback(txns);
+  }, (error: any) => {
+    console.error('[FirestoreService] Transaction listener error:', error);
+  });
+
+  return unsubscribe;
+}
+
+/**
+ * Attempt to match an incoming bank transaction to an unpaid bill
+ * using the sender's phone number.
+ *
+ * Returns the payment id that was updated, or null if no match.
+ */
+export async function reconcileTransactionToBill(
+  transaction: TransactionRecord,
+  month: number,
+  year: number
+): Promise<string | null> {
+  try {
+    const senderPhone = transaction.senderPhone; // already 254... format
+    if (!senderPhone) return null;
+
+    // Find all unpaid bills for the given month/year with this phone number
+    const q = query(
+      collection(db, PAYMENTS_COLLECTION),
+      where('tenantPhone', '==', senderPhone),
+      where('month', '==', month),
+      where('year', '==', year)
+    );
+
+    const snapshot = await getDocs(q);
+    if (snapshot.empty) return null;
+
+    // Take the first matching unpaid bill
+    const billDoc = snapshot.docs[0];
+    const bill = { id: billDoc.id, ...billDoc.data() } as PaymentRecord;
+
+    const newBankPaid = (bill.bank_paid || 0) + transaction.amount;
+    const totalPaid = newBankPaid + (bill.cash_paid || 0);
+    const newBalance = bill.total_amount - totalPaid;
+    const isPaid = newBalance <= 0;
+
+    await updateDoc(doc(db, PAYMENTS_COLLECTION, billDoc.id), {
+      bank_paid: newBankPaid,
+      balance: newBalance,
+      paid: isPaid,
+      trans_id: transaction.id,
+      month_paid: isPaid ? `${MONTH_NAMES_SVC[month - 1]} ${year}` : bill.month_paid,
+      time: isPaid ? serverTimestamp() : bill.time,
+      updatedAt: serverTimestamp(),
+    });
+
+    // Mark transaction as reconciled
+    await markTransactionReconciled(transaction.id);
+
+    console.log(
+      `[FirestoreService] ✓ Reconciled txn ${transaction.id} → bill ${billDoc.id}, balance: ${newBalance}`
+    );
+    return billDoc.id;
+  } catch (error) {
+    console.error('[FirestoreService] ✗ reconcileTransactionToBill failed:', error);
+    return null;
+  }
+}
+
+const MONTH_NAMES_SVC = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+];
+
+/**
+ * When a bank payment arrives but no bill exists yet, auto-create a bill
+ * from the tenant's plot data and apply the payment.
+ */
+export async function autoCreateBillFromTransaction(
+  transaction: TransactionRecord,
+  month: number,
+  year: number
+): Promise<string | null> {
+  try {
+    const senderPhone = transaction.senderPhone;
+    if (!senderPhone) return null;
+
+    // Search all plots for a tenant with this phone number
+    const allPlots = await getAllPlots();
+    let matchedPlot: PlotRecord | null = null;
+    let matchedUnit: HouseUnit | null = null;
+
+    for (const plot of allPlots) {
+      const unit = plot.houses.find(h => h.tenantPhone === senderPhone);
+      if (unit) {
+        matchedPlot = plot;
+        matchedUnit = unit;
+        break;
+      }
+    }
+
+    if (!matchedPlot || !matchedUnit) return null;
+
+    // Check if a bill already exists
+    const docId = `${matchedPlot.id}_${matchedUnit.houseNo}_${month}_${year}`;
+    const existingDoc = await getDoc(doc(db, PAYMENTS_COLLECTION, docId));
+    if (existingDoc.exists()) {
+      // Bill exists — just reconcile the transaction to it
+      return reconcileTransactionToBill(transaction, month, year);
+    }
+
+    // Look up carry-forward
+    const carryFwd = await getCarryForward(matchedPlot.id!, matchedUnit.houseNo, month, year);
+
+    // Use current water readings (no new meter reading)
+    const waterBill = 0; // water not billed until manually entered
+    const grossTotal = matchedUnit.baseRent + matchedUnit.garbageFees + waterBill;
+    const totalAmount = Math.max(0, grossTotal - carryFwd);
+    const totalPaid = transaction.amount;
+    const newBalance = totalAmount - totalPaid;
+    const isPaid = newBalance <= 0;
+
+    const billData: Omit<PaymentRecord, 'id'> = {
+      plotId: matchedPlot.id!,
+      plotName: matchedPlot.plotName,
+      houseNo: matchedUnit.houseNo,
+      name: matchedUnit.tenantName || '',
+      tenantPhone: senderPhone,
+      month,
+      year,
+      baseRent: matchedUnit.baseRent,
+      garbageFees: matchedUnit.garbageFees,
+      previousWaterUnits: matchedUnit.previousWaterUnits,
+      currentWaterUnits: matchedUnit.currentWaterUnits,
+      waterBill,
+      total_amount: totalAmount,
+      paid: isPaid,
+      bank_paid: totalPaid,
+      cash_paid: 0,
+      balance: newBalance,
+      carryForward: carryFwd,
+      month_paid: isPaid ? `${MONTH_NAMES_SVC[month - 1]} ${year}` : '',
+      trans_id: transaction.id,
+      time: isPaid ? serverTimestamp() : null,
+    };
+
+    await setDoc(doc(db, PAYMENTS_COLLECTION, docId), {
+      ...billData,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+
+    // Mark transaction reconciled
+    await markTransactionReconciled(transaction.id);
+
+    console.log('[FirestoreService] ✓ Auto-created bill from txn:', docId);
+    return docId;
+  } catch (error) {
+    console.error('[FirestoreService] ✗ autoCreateBillFromTransaction failed:', error);
+    return null;
+  }
+}
+
+/**
+ * Create a bill OR update an existing one (upsert).
+ * Useful when we need to save water changes on a bill that was auto-created.
+ */
+export async function upsertBill(
+  data: Omit<PaymentRecord, 'id'>
+): Promise<{ success: boolean; id: string; error?: string }> {
+  try {
+    const docId = `${data.plotId}_${data.houseNo}_${data.month}_${data.year}`;
+    const docRef = doc(db, PAYMENTS_COLLECTION, docId);
+
+    await setDoc(docRef, {
+      ...data,
+      updatedAt: serverTimestamp(),
+    }, { merge: true });
+
+    console.log('[FirestoreService] ✓ Bill upserted:', docId);
+    return { success: true, id: docId };
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : 'Unknown error';
+    console.error('[FirestoreService] ✗ Upsert bill failed:', msg);
+    return { success: false, id: '', error: msg };
   }
 }

@@ -5,16 +5,16 @@
 import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
 import React, { useMemo, useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    KeyboardAvoidingView,
-    Platform,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { PageHeader } from '../../components/page-header';
@@ -29,6 +29,7 @@ interface HouseUnit {
   baseRent: number;
   garbageFees: number;
   previousWaterUnits: number;
+  currentWaterUnits: number;
 }
 
 export default function RegisterPlot() {
@@ -48,6 +49,7 @@ export default function RegisterPlot() {
       baseRent: 0,
       garbageFees: 0,
       previousWaterUnits: 0,
+      currentWaterUnits: 0,
     };
     setHouses([...houses, newHouse]);
   };
