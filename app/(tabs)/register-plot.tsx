@@ -100,6 +100,17 @@ export default function RegisterPlot() {
       }
     }
 
+    // Check for duplicate house numbers
+    const houseNos = houses.map(h => h.houseNo.trim().toLowerCase());
+    const seen = new Set<string>();
+    for (const no of houseNos) {
+      if (seen.has(no)) {
+        Alert.alert('Duplicate House Number', `House number "${no}" is used more than once. Each unit must have a unique house number.`);
+        return false;
+      }
+      seen.add(no);
+    }
+
     return true;
   };
 

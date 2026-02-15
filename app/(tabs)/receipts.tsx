@@ -116,7 +116,7 @@ export default function Receipts() {
 
   const navigateToDetail = (plot: PlotRecord) => {
     router.push({
-      pathname: '/(tabs)/receipt-detail',
+      pathname: '/receipt-detail',
       params: { plotId: plot.id, plotName: plot.plotName },
     });
   };

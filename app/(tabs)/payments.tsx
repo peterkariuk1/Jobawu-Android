@@ -2,8 +2,9 @@
  * Payments Page
  * View plots with payment summaries, search, and navigate to detail
  */
+import { useFocusEffect } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
     ActivityIndicator,
     FlatList,
@@ -94,9 +95,13 @@ export default function Payments() {
     }
   }, [currentMonth, currentYear]);
 
-  useEffect(() => {
-    loadData();
-  }, [loadData]);
+
+  // Always reload data when Payments tab is focused
+  useFocusEffect(
+    React.useCallback(() => {
+      loadData();
+    }, [loadData])
+  );
 
   const filteredSummaries = useMemo(() => {
     if (!searchQuery.trim()) return plotSummaries;
@@ -108,7 +113,7 @@ export default function Payments() {
 
   const navigateToDetail = (plot: PlotRecord) => {
     router.push({
-      pathname: '/(tabs)/payment-detail',
+      pathname: '/payment-detail',
       params: { plotId: plot.id, plotName: plot.plotName },
     });
   };

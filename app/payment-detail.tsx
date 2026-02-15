@@ -6,36 +6,36 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    Linking,
-    Modal,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  Linking,
+  Modal,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { ReceiptPrinter } from '../../components/receipt-printer';
-import { borderRadius, shadows, spacing, typography } from '../../constants/design';
-import { useThemedColors } from '../../hooks/use-themed-colors';
+import { ReceiptPrinter } from '../components/receipt-printer';
+import { borderRadius, shadows, spacing, typography } from '../constants/design';
+import { useThemedColors } from '../hooks/use-themed-colors';
 import {
-    autoCreateBillFromTransaction,
-    createBill,
-    getAllPlots,
-    getCarryForward,
-    getPaymentsForPlotMonth,
-    HouseUnit,
-    listenToTransactions,
-    PaymentRecord,
-    PlotRecord,
-    reconcileTransactionToBill,
-    TransactionRecord,
-    updateHouseWaterUnits,
-    updatePaymentRecord,
-} from '../../services/firestore-service';
+  autoCreateBillFromTransaction,
+  createBill,
+  getAllPlots,
+  getCarryForward,
+  getPaymentsForPlotMonth,
+  HouseUnit,
+  listenToTransactions,
+  PaymentRecord,
+  PlotRecord,
+  reconcileTransactionToBill,
+  TransactionRecord,
+  updateHouseWaterUnits,
+  updatePaymentRecord,
+} from '../services/firestore-service';
 
 // ─── Constants ───────────────────────────────────────────────
 const WATER_RATE = 22; // KES per unit
@@ -728,47 +728,6 @@ export default function PaymentDetail() {
                   )}
                 </TouchableOpacity>
 
-                <View style={styles.msgIcons}>
-                  <TouchableOpacity
-                    style={dynamicStyles.msgBtn}
-                    onPress={() => {
-                      if (!unit.tenantPhone) {
-                        Alert.alert('Error', 'No phone number for this tenant');
-                        return;
-                      }
-                      const msg = buildMessage(
-                        unit.tenantName || '', unit.houseNo,
-                        unit.baseRent, unit.garbageFees,
-                        waterBill, unit.previousWaterUnits, currUnits,
-                        grossTotal, 0
-                      );
-                      openSms(unit.tenantPhone, msg);
-                    }}
-                    activeOpacity={0.7}
-                  >
-                    <Text style={dynamicStyles.msgBtnText}>💬 SMS</Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={dynamicStyles.msgBtn}
-                    onPress={() => {
-                      if (!unit.tenantPhone) {
-                        Alert.alert('Error', 'No phone number for this tenant');
-                        return;
-                      }
-                      const msg = buildMessage(
-                        unit.tenantName || '', unit.houseNo,
-                        unit.baseRent, unit.garbageFees,
-                        waterBill, unit.previousWaterUnits, currUnits,
-                        grossTotal, 0
-                      );
-                      openWhatsApp(unit.tenantPhone, msg);
-                    }}
-                    activeOpacity={0.7}
-                  >
-                    <Text style={dynamicStyles.msgBtnText}>📱 WhatsApp</Text>
-                  </TouchableOpacity>
-                </View>
               </View>
             </View>
           );

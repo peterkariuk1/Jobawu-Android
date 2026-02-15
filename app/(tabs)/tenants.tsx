@@ -4,16 +4,16 @@
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    FlatList,
-    Modal,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  FlatList,
+  Modal,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { PageHeader } from '../../components/page-header';
@@ -21,11 +21,11 @@ import { Sidebar } from '../../components/sidebar';
 import { borderRadius, spacing, typography } from '../../constants/design';
 import { useThemedColors } from '../../hooks/use-themed-colors';
 import {
-    assignTenantToUnit,
-    getAllPlots,
-    PlotRecord,
-    removeTenantFromUnit,
-    updateTenantInUnit
+  assignTenantToUnit,
+  getAllPlots,
+  PlotRecord,
+  removeTenantFromUnit,
+  updateTenantInUnit
 } from '../../services/firestore-service';
 
 interface HouseUnit {
@@ -198,6 +198,25 @@ export default function Tenants() {
       return;
     }
 
+    // Check for duplicate phone number across all plots
+    const formattedPhone = cleanedPhone.startsWith('0')
+      ? '254' + cleanedPhone.substring(1)
+      : cleanedPhone;
+    for (const plot of plots) {
+      for (const h of plot.houses) {
+        if (
+          h.tenantPhone === formattedPhone &&
+          !(plot.id === selectedPlot.id && h.houseNo === selectedUnit.houseNo)
+        ) {
+          Alert.alert(
+            'Duplicate Phone Number',
+            `This phone number is already assigned to ${h.tenantName ?? 'a tenant'} in ${plot.plotName}, Unit ${h.houseNo}.`
+          );
+          return;
+        }
+      }
+    }
+
     const deposit = parseFloat(depositPaid);
     if (isNaN(deposit) || deposit < 0) {
       Alert.alert('Validation Error', 'Please enter a valid deposit amount');
@@ -272,6 +291,25 @@ export default function Tenants() {
         'Phone number must start with 01 or 07 and be exactly 10 digits (e.g., 0712345678)'
       );
       return;
+    }
+
+    // Check for duplicate phone number across all plots (exclude current unit)
+    const formattedPhone = cleanedPhone.startsWith('0')
+      ? '254' + cleanedPhone.substring(1)
+      : cleanedPhone;
+    for (const plot of plots) {
+      for (const h of plot.houses) {
+        if (
+          h.tenantPhone === formattedPhone &&
+          !(plot.id === selectedPlot.id && h.houseNo === selectedUnit.houseNo)
+        ) {
+          Alert.alert(
+            'Duplicate Phone Number',
+            `This phone number is already assigned to ${h.tenantName ?? 'a tenant'} in ${plot.plotName}, Unit ${h.houseNo}.`
+          );
+          return;
+        }
+      }
     }
 
     const month = parseInt(editMonthRented);
@@ -829,6 +867,7 @@ export default function Tenants() {
               <Text style={dynamicStyles.unitInfoText}>
                 Plot: {selectedPlot.plotName} | Unit: {selectedUnit.houseNo}
                 {'\n'}Rent: KES {selectedUnit.baseRent.toLocaleString()} | Garbage: KES {selectedUnit.garbageFees.toLocaleString()}
+                {'\n'}Current Water Units: {selectedUnit.currentWaterUnits}
                 {'\n'}Total: KES {(selectedUnit.baseRent + selectedUnit.garbageFees).toLocaleString()}/month
               </Text>
             )}

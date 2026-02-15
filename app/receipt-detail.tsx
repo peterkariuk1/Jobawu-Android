@@ -8,6 +8,8 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
     ActivityIndicator,
+    Alert,
+    Linking,
     ScrollView,
     StyleSheet,
     Text,
@@ -16,13 +18,13 @@ import {
     View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { ReceiptPrinter } from '../../components/receipt-printer';
-import { borderRadius, shadows, spacing, typography } from '../../constants/design';
-import { useThemedColors } from '../../hooks/use-themed-colors';
+import { ReceiptPrinter } from '../components/receipt-printer';
+import { borderRadius, shadows, spacing, typography } from '../constants/design';
+import { useThemedColors } from '../hooks/use-themed-colors';
 import {
     getPaymentsForPlotMonth,
     PaymentRecord,
-} from '../../services/firestore-service';
+} from '../services/firestore-service';
 
 // ─── Constants ───────────────────────────────────────────────
 const MONTH_OPTIONS = [
@@ -62,6 +64,7 @@ export default function ReceiptDetail() {
   // Receipt printer modal
   const [receiptVisible, setReceiptVisible] = useState(false);
   const [receiptPayment, setReceiptPayment] = useState<PaymentRecord | null>(null);
+  const [plotPrintVisible, setPlotPrintVisible] = useState(false);
 
   // Data loading
   const loadData = useCallback(async () => {
@@ -124,6 +127,46 @@ export default function ReceiptDetail() {
   const openReceipt = (p: PaymentRecord) => {
     setReceiptPayment(p);
     setReceiptVisible(true);
+  };
+
+  // ── Build receipt text for SMS / WhatsApp ──────────────────
+  const buildReceiptMessage = (p: PaymentRecord): string => {
+    const totalPaid = (p.bank_paid || 0) + (p.cash_paid || 0);
+    const bal = p.balance ?? 0;
+    const balLabel = bal < 0 ? 'Carry Forward' : 'Balance';
+    const balVal = bal < 0 ? fmt(Math.abs(bal)) : fmt(bal);
+    const cashLine = (p.cash_paid || 0) > 0 ? `\nCash Paid: ${fmt(p.cash_paid)}` : '';
+    const transLine = p.trans_id ? `\nTrans ID: ${p.trans_id}` : '';
+
+    return [
+      '=== JOBAWU RECEIPT ===',
+      '',
+      `Tenant: ${p.name}`,
+      `House: ${p.houseNo}`,
+      `Month: ${monthLabel} ${selectedYear}`,
+      '',
+      `Rent: ${fmt(p.baseRent)}`,
+      `Garbage: ${fmt(p.garbageFees)}`,
+      `Water (${p.previousWaterUnits}→${p.currentWaterUnits}): ${fmt(p.waterBill)}`,
+      `Total Bill: ${fmt(p.total_amount)}`,
+      '',
+      `Bank Paid: ${fmt(p.bank_paid)}`,
+      cashLine,
+      `${balLabel}: ${balVal}`,
+      transLine,
+      '',
+      'THANK YOU',
+    ].filter(Boolean).join('\n');
+  };
+
+  const openSms = (phone: string, message: string) => {
+    const url = `sms:+${phone}?body=${encodeURIComponent(message)}`;
+    Linking.openURL(url).catch(() => Alert.alert('Error', 'Could not open SMS app'));
+  };
+
+  const openWhatsApp = (phone: string, message: string) => {
+    const url = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
+    Linking.openURL(url).catch(() => Alert.alert('Error', 'Could not open WhatsApp'));
   };
 
   // ── Render month/year selector ─────────────────────────────
@@ -192,6 +235,18 @@ export default function ReceiptDetail() {
       fontWeight: typography.fontWeight.semibold as any,
       color: themedColors.text.primary,
       flex: 1,
+    },
+    printAllBtn: {
+      backgroundColor: themedColors.primary[500],
+      borderRadius: borderRadius.md,
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.sm,
+      marginLeft: spacing.sm,
+    },
+    printAllBtnText: {
+      color: '#FFFFFF',
+      fontSize: typography.fontSize.sm,
+      fontWeight: typography.fontWeight.semibold as any,
     },
     searchInput: {
       backgroundColor: themedColors.background.card,
@@ -382,6 +437,26 @@ export default function ReceiptDetail() {
     printerBtnTextDisabled: {
       color: themedColors.text.tertiary,
     },
+    actionsRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.sm,
+      marginTop: spacing.md,
+    },
+    msgBtn: {
+      backgroundColor: themedColors.background.secondary,
+      borderWidth: 1,
+      borderColor: themedColors.border.main,
+      borderRadius: borderRadius.md,
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.sm,
+      alignItems: 'center',
+      justifyContent: 'center',
+      minHeight: 36,
+    },
+    msgBtnText: {
+      fontSize: typography.fontSize.base,
+    },
     // Section divider
     sectionDivider: {
       flexDirection: 'row',
@@ -502,14 +577,36 @@ export default function ReceiptDetail() {
           </View>
         )}
 
-        {/* Footer: month tag + print */}
+        {/* Footer: month tag + actions */}
         <View style={dynamicStyles.cardFooter}>
           <Text style={dynamicStyles.monthTag}>
             {monthLabel} {selectedYear}
           </Text>
+        </View>
+        <View style={dynamicStyles.actionsRow}>
+          {/* SMS */}
+          <TouchableOpacity
+            style={dynamicStyles.msgBtn}
+            activeOpacity={0.7}
+            onPress={() => p.tenantPhone && openSms(p.tenantPhone, buildReceiptMessage(p))}
+            disabled={!p.tenantPhone}
+          >
+            <Text style={dynamicStyles.msgBtnText}>💬</Text>
+          </TouchableOpacity>
+          {/* WhatsApp */}
+          <TouchableOpacity
+            style={dynamicStyles.msgBtn}
+            activeOpacity={0.7}
+            onPress={() => p.tenantPhone && openWhatsApp(p.tenantPhone, buildReceiptMessage(p))}
+            disabled={!p.tenantPhone}
+          >
+            <Text style={dynamicStyles.msgBtnText}>📱</Text>
+          </TouchableOpacity>
+          {/* Print */}
           <TouchableOpacity
             style={[
               dynamicStyles.printerBtn,
+              { flex: 1 },
               !canPrint && dynamicStyles.printerBtnDisabled,
             ]}
             disabled={!canPrint}
@@ -522,7 +619,7 @@ export default function ReceiptDetail() {
                 !canPrint && dynamicStyles.printerBtnTextDisabled,
               ]}
             >
-              🖨️ {canPrint ? 'Print Receipt' : 'Awaiting Payment'}
+              🖨️ {canPrint ? 'Print' : 'Awaiting Payment'}
             </Text>
           </TouchableOpacity>
         </View>
@@ -558,6 +655,15 @@ export default function ReceiptDetail() {
         <Text style={dynamicStyles.headerTitle} numberOfLines={1}>
           {plotName || 'Receipts'}
         </Text>
+        {paidList.length > 0 && (
+          <TouchableOpacity
+            style={dynamicStyles.printAllBtn}
+            onPress={() => setPlotPrintVisible(true)}
+            activeOpacity={0.7}
+          >
+            <Text style={dynamicStyles.printAllBtnText}>🖨️ Print All</Text>
+          </TouchableOpacity>
+        )}
       </View>
 
       {loading ? (
@@ -625,11 +731,18 @@ export default function ReceiptDetail() {
         </ScrollView>
       )}
 
-      {/* Receipt printer modal */}
+      {/* Receipt printer modal — single tenant */}
       <ReceiptPrinter
         visible={receiptVisible}
         payment={receiptPayment}
         onClose={() => setReceiptVisible(false)}
+      />
+
+      {/* Receipt printer modal — all paid tenants */}
+      <ReceiptPrinter
+        visible={plotPrintVisible}
+        payments={paidList}
+        onClose={() => setPlotPrintVisible(false)}
       />
     </SafeAreaView>
   );

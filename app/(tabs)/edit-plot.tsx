@@ -7,7 +7,9 @@ import {
     ActivityIndicator,
     Alert,
     FlatList,
+    KeyboardAvoidingView,
     Modal,
+    Platform,
     ScrollView,
     StyleSheet,
     Text,
@@ -149,6 +151,17 @@ export default function EditPlot() {
       }
     }
 
+    // Check for duplicate house numbers
+    const houseNos = editHouses.map(h => h.houseNo.trim().toLowerCase());
+    const seen = new Set<string>();
+    for (const no of houseNos) {
+      if (seen.has(no)) {
+        Alert.alert('Duplicate House Number', `House number "${no}" is used more than once. Each unit must have a unique house number.`);
+        return;
+      }
+      seen.add(no);
+    }
+
     setSaving(true);
     try {
       const numberOfUnits = editHouses.length;
@@ -160,13 +173,10 @@ export default function EditPlot() {
       const plotData: PlotRecord = {
         id: selectedPlot?.id,
         plotName: editPlotName.trim(),
-        houses: editHouses.map(house => ({
+        houses: editHouses.map(({ id: _id, ...house }) => ({
+          ...house,
           houseNo: house.houseNo.trim(),
-          baseRent: house.baseRent,
-          garbageFees: house.garbageFees,
-          previousWaterUnits: house.previousWaterUnits,
           currentWaterUnits: house.currentWaterUnits || house.previousWaterUnits,
-          tenant: house.tenant,
         })),
         numberOfUnits,
         totalRentAndGarbageExpected,
@@ -469,7 +479,13 @@ export default function EditPlot() {
             <View style={{ width: 20 }} />
           </View>
 
-          <ScrollView style={dynamicStyles.modalContent} contentContainerStyle={styles.modalScroll}>
+          <KeyboardAvoidingView
+            style={{ flex: 1 }}
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          >
+          <ScrollView style={dynamicStyles.modalContent} contentContainerStyle={styles.modalScroll}
+            keyboardShouldPersistTaps="handled"
+          >
             {/* Plot Name */}
             <View style={styles.section}>
               <Text style={dynamicStyles.label}>Plot Name *</Text>
@@ -559,6 +575,7 @@ export default function EditPlot() {
               ))}
             </View>
           </ScrollView>
+          </KeyboardAvoidingView>
 
           {/* Save Button */}
           <View style={[styles.modalFooter, { backgroundColor: themedColors.background.primary, borderTopColor: themedColors.border.main }]}>
