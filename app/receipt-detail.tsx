@@ -7,23 +7,23 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    Linking,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  Linking,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ReceiptPrinter } from '../components/receipt-printer';
 import { borderRadius, shadows, spacing, typography } from '../constants/design';
 import { useThemedColors } from '../hooks/use-themed-colors';
 import {
-    getPaymentsForPlotMonth,
-    PaymentRecord,
+  getPaymentsForPlotMonth,
+  PaymentRecord,
 } from '../services/firestore-service';
 
 // ─── Constants ───────────────────────────────────────────────
@@ -326,8 +326,6 @@ export default function ReceiptDetail() {
       borderRadius: borderRadius.lg,
       padding: spacing.base,
       marginBottom: spacing.md,
-      borderWidth: 1,
-      borderColor: themedColors.border.light,
       ...shadows.sm,
     },
     cardUnit: {
