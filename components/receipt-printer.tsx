@@ -17,16 +17,16 @@
  */
 import React, { useCallback, useMemo, useRef, useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    Image,
-    Modal,
-    ScrollView,
-    Share,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View
+  ActivityIndicator,
+  Alert,
+  Image,
+  Modal,
+  ScrollView,
+  Share,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View
 } from 'react-native';
 import { captureRef } from 'react-native-view-shot';
 import { borderRadius, spacing, typography } from '../constants/design';
@@ -181,84 +181,84 @@ function ReceiptBody({ payment: p, ds, isLast }: {
 
   return (
     <>
-    <View style={ds.receipt}>
-      <View style={ds.logoContainer}>
-        <Image source={logoImage} style={ds.logo} />
-      </View>
+      <View style={ds.receipt}>
+        <View style={ds.logoContainer}>
+          <Image source={logoImage} style={ds.logo} />
+        </View>
 
-      <Text style={ds.tenantName}>{p.name}</Text>
-      <Text style={ds.tenantDetail}>{maskPhone(p.tenantPhone)}</Text>
-      <Text style={ds.tenantDetail}>House {p.houseNo}</Text>
-      <Text style={ds.tenantDetail}>Month Paid: {month}</Text>
+        <Text style={ds.tenantName}>{p.name}</Text>
+        <Text style={ds.tenantDetail}>{maskPhone(p.tenantPhone)}</Text>
+        <Text style={ds.tenantDetail}>House {p.houseNo}</Text>
+        <Text style={ds.tenantDetail}>Month Paid: {month}</Text>
 
-      <View style={ds.hr} />
+        <View style={ds.hr} />
 
-      <View style={ds.lineItem}>
-        <Text style={ds.lineLabel}>Base Rent</Text>
-        <Text style={ds.lineValue}>{fmt(p.baseRent)}</Text>
-      </View>
-      <View style={ds.lineItem}>
-        <Text style={ds.lineLabel}>Garbage Collection Fee</Text>
-        <Text style={ds.lineValue}>{fmt(p.garbageFees)}</Text>
-      </View>
-      <View style={ds.lineItem}>
-        <Text style={ds.lineLabel}>
-          Water ({p.previousWaterUnits} → {p.currentWaterUnits} units)
-        </Text>
-        <Text style={ds.lineValue}>{fmt(p.waterBill)}</Text>
-      </View>
-      <View style={ds.lineItem}>
-        <Text style={[ds.lineLabel, { fontWeight: '700' as any }]}>Total Bill</Text>
-        <Text style={[ds.lineValue, { fontWeight: '700' as any }]}>
-          {fmt(p.total_amount)}
-        </Text>
-      </View>
-
-      <View style={ds.hr} />
-
-      <View style={ds.lineItem}>
-        <Text style={ds.lineLabel}>Bank Paid</Text>
-        <Text style={[ds.lineValue, { color: '#16a34a' }]}>
-          {fmt(p.bank_paid)}
-        </Text>
-      </View>
-      {(p.cash_paid || 0) > 0 && (
         <View style={ds.lineItem}>
-          <Text style={ds.lineLabel}>Cash Paid</Text>
-          <Text style={[ds.lineValue, { color: '#16a34a' }]}>
-            {fmt(p.cash_paid)}
+          <Text style={ds.lineLabel}>Base Rent</Text>
+          <Text style={ds.lineValue}>{fmt(p.baseRent)}</Text>
+        </View>
+        <View style={ds.lineItem}>
+          <Text style={ds.lineLabel}>Garbage Collection Fee</Text>
+          <Text style={ds.lineValue}>{fmt(p.garbageFees)}</Text>
+        </View>
+        <View style={ds.lineItem}>
+          <Text style={ds.lineLabel}>
+            Water ({p.previousWaterUnits} → {p.currentWaterUnits} units)
+          </Text>
+          <Text style={ds.lineValue}>{fmt(p.waterBill)}</Text>
+        </View>
+        <View style={ds.lineItem}>
+          <Text style={[ds.lineLabel, { fontWeight: '700' as any }]}>Total Bill</Text>
+          <Text style={[ds.lineValue, { fontWeight: '700' as any }]}>
+            {fmt(p.total_amount)}
           </Text>
         </View>
-      )}
-      <View style={ds.lineItem}>
-        <Text style={ds.lineLabel}>
-          {bal < 0 ? 'Carry Forward' : 'Balance'}
-        </Text>
-        <Text
-          style={[
-            ds.lineValue,
-            { color: bal <= 0 ? '#16a34a' : '#dc2626' },
-          ]}
-        >
-          {bal < 0 ? fmt(Math.abs(bal)) : fmt(bal)}
-        </Text>
-      </View>
 
-      <View style={ds.hr} />
+        <View style={ds.hr} />
 
-      {p.trans_id ? (
-        <Text style={[ds.footerText, { marginBottom: 4 }]}>
-          Trans ID: {p.trans_id}
-        </Text>
-      ) : null}
-      <View style={ds.footer}>
-        <Text style={ds.footerText}>
-          You were served by Grace at {time}
-        </Text>
-        <Text style={ds.thankYou}>THANK YOU</Text>
+        <View style={ds.lineItem}>
+          <Text style={ds.lineLabel}>Bank Paid</Text>
+          <Text style={[ds.lineValue, { color: '#16a34a' }]}>
+            {fmt(p.bank_paid)}
+          </Text>
+        </View>
+        {(p.cash_paid || 0) > 0 && (
+          <View style={ds.lineItem}>
+            <Text style={ds.lineLabel}>Cash Paid</Text>
+            <Text style={[ds.lineValue, { color: '#16a34a' }]}>
+              {fmt(p.cash_paid)}
+            </Text>
+          </View>
+        )}
+        <View style={ds.lineItem}>
+          <Text style={ds.lineLabel}>
+            {bal < 0 ? 'Carry Forward' : 'Balance'}
+          </Text>
+          <Text
+            style={[
+              ds.lineValue,
+              { color: bal <= 0 ? '#16a34a' : '#dc2626' },
+            ]}
+          >
+            {bal < 0 ? fmt(Math.abs(bal)) : fmt(bal)}
+          </Text>
+        </View>
+
+        <View style={ds.hr} />
+
+        {p.trans_id ? (
+          <Text style={[ds.footerText, { marginBottom: 4 }]}>
+            Trans ID: {p.trans_id}
+          </Text>
+        ) : null}
+        <View style={ds.footer}>
+          <Text style={ds.footerText}>
+            You were served by Grace at {time}
+          </Text>
+          <Text style={ds.thankYou}>THANK YOU</Text>
+        </View>
       </View>
-    </View>
-    {!isLast && <View style={ds.receiptSeparator} />}
+      {!isLast && <View style={ds.receiptSeparator} />}
     </>
   );
 }
@@ -472,8 +472,8 @@ export function ReceiptPrinter({ visible, payment, payments, onClose }: ReceiptP
     receipt: {
       backgroundColor: '#FFFFFF',
       padding: spacing.lg,
-      margin: spacing.base,
-      borderRadius: borderRadius.md,
+      margin: 0,              // Changed from spacing.base
+      borderRadius: 0,        // Changed from borderRadius.md
     },
     receiptMultiWrap: {
       backgroundColor: '#FFFFFF',
@@ -567,11 +567,11 @@ export function ReceiptPrinter({ visible, payment, payments, onClose }: ReceiptP
             <View ref={receiptRef} collapsable={false} style={isMultiMode ? ds.receiptMultiWrap : undefined}>
               {isMultiMode
                 ? payments!.map((p, idx) => (
-                    <ReceiptBody key={p.id ?? idx} payment={p} ds={ds} isLast={idx === payments!.length - 1} />
-                  ))
+                  <ReceiptBody key={p.id ?? idx} payment={p} ds={ds} isLast={idx === payments!.length - 1} />
+                ))
                 : effectivePayment && (
-                    <ReceiptBody payment={effectivePayment} ds={ds} />
-                  )}
+                  <ReceiptBody payment={effectivePayment} ds={ds} />
+                )}
             </View>
           </ScrollView>
 
